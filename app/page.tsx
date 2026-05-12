@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useRef, useEffect, useCallback } from "react";
-import { STARTER_PROMPTS, HUNT_IDEAS } from "./corpus";
+import { STARTER_PROMPTS, HUNT_IDEAS, HuntIdea } from "./corpus";
 import { parseTenantSchema, schemaToPromptContext, TenantSchema, DISCOVERY_QUERIES as DQ } from "./schemaParser";
 
 // ─── TYPES ───────────────────────────────────────────────────────────────────
@@ -20,11 +20,21 @@ interface ValidationResult {
   autoCorrected: boolean;
 }
 
+interface AttackRef {
+  techniqueId: string;
+  techniqueName: string;
+  tactic: string;
+  url: string;
+}
+
 interface Message {
   role: "user" | "assistant";
   content: string;
   streaming?: boolean;
   validation?: ValidationResult | null;
+  attack?: AttackRef | null;
+  xqlQuery?: string | null;     // extracted XQL for hunt plan generation
+  userQuery?: string | null;    // original user question
 }
 
 // ─── VALIDATION BADGE ────────────────────────────────────────────────────────
@@ -80,6 +90,257 @@ function ValidationBadge({ v }: { v: ValidationResult }) {
           ))}
         </div>
       )}
+    </div>
+  );
+}
+
+
+// ─── ATT&CK BADGE ────────────────────────────────────────────────────────────
+
+function AttackBadge({ a }: { a: AttackRef }) {
+  return (
+    <div className="attack-badge">
+      <a
+        href={a.url}
+        target="_blank"
+        rel="noopener noreferrer"
+        className="attack-chip"
+        title={"View " + a.techniqueId + " on MITRE ATT&CK"}
+      >
+        <span className="attack-chip-tactic">{a.tactic}</span>
+        <span>{a.techniqueId}</span>
+        <span style={{ opacity: 0.8 }}>·</span>
+        <span>{a.techniqueName}</span>
+        <span style={{ fontSize: "8px", opacity: 0.5, marginLeft: "2px" }}>↗</span>
+      </a>
+    </div>
+  );
+}
+
+
+// ─── HUNT PLAN MODAL ─────────────────────────────────────────────────────────
+
+function extractXqlFromContent(text: string): string | null {
+  const match = text.match(/```(?:xql)?\n?([\s\S]*?)```/);
+  if (!match) return null;
+  const code = match[1].trim();
+  if (code.includes("dataset") || code.includes("| filter") || code.includes("| comp")) return code;
+  return null;
+}
+
+function parseHuntPlanMarkdown(text: string): string {
+  let html = text;
+  const codeBlocks: string[] = [];
+
+  html = html.replace(/```(\w*)\n?([\s\S]*?)```/g, (_: string, lang: string, code: string) => {
+    const idx = codeBlocks.length;
+    const escaped = code.trim()
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;");
+    codeBlocks.push(
+      `<div class="hp-code-block"><div class="hp-code-header">` +
+      `<span class="hp-code-lang">${lang || "xql"}</span>` +
+      `<button class="hp-copy-btn" onclick="copyHpCode(this)">&gt; COPY</button></div>` +
+      `<pre><code>${escaped}</code></pre></div>`
+    );
+    return `__HPCODE_${idx}__`;
+  });
+
+  html = html.replace(/^> (.+)$/gm, "<blockquote>$1</blockquote>");
+  html = html.replace(/^# (.+)$/gm, "<h1>$1</h1>");
+  html = html.replace(/^## (.+)$/gm, "<h2>$1</h2>");
+  html = html.replace(/^### (.+)$/gm, '<h3 style="font-family:var(--font-mono);font-size:11px;color:var(--accent-cyan);letter-spacing:0.1em;text-transform:uppercase;margin:14px 0 6px;">$1</h3>');
+  html = html.replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>");
+  html = html.replace(/`([^`]+)`/g, "<code>$1</code>");
+  html = html.replace(/^---$/gm, "<hr/>");
+
+  // Tables
+  html = html.replace(/^\|(.+)\|$/gm, (line: string) => {
+    if (/^\|[-| :]+\|$/.test(line)) return "__TABLE_SEP__";
+    const cells = line.slice(1, -1).split("|").map((c: string) => c.trim());
+    return "__TABLE_ROW__" + cells.join("__CELL__");
+  });
+
+  const tableLines = html.split("\n");
+  let inTable = false;
+  let isHeader = false;
+  const processedLines: string[] = [];
+  for (let i = 0; i < tableLines.length; i++) {
+    const line = tableLines[i];
+    if (line.startsWith("__TABLE_ROW__")) {
+      const cells = line.replace("__TABLE_ROW__", "").split("__CELL__");
+      if (!inTable) { processedLines.push("<table>"); inTable = true; isHeader = true; }
+      if (tableLines[i + 1] === "__TABLE_SEP__") {
+        processedLines.push("<tr>" + cells.map((c: string) => `<th>${c}</th>`).join("") + "</tr>");
+      } else {
+        processedLines.push("<tr>" + cells.map((c: string) => `<td>${c}</td>`).join("") + "</tr>");
+        isHeader = false;
+      }
+    } else if (line === "__TABLE_SEP__") {
+      // skip separator row
+    } else {
+      if (inTable) { processedLines.push("</table>"); inTable = false; isHeader = false; }
+      processedLines.push(line);
+    }
+  }
+  if (inTable) processedLines.push("</table>");
+  html = processedLines.join("\n");
+
+  html = html.replace(/^- (.+)$/gm, "<li>$1</li>");
+  html = html.replace(/^\d+\. (.+)$/gm, "<li>$1</li>");
+
+  // Wrap consecutive <li> groups in <ul>
+  const finalLines = html.split("\n");
+  const wrappedLines: string[] = [];
+  let inList = false;
+  for (const line of finalLines) {
+    if (line.startsWith("<li>")) {
+      if (!inList) { wrappedLines.push("<ul>"); inList = true; }
+      wrappedLines.push(line);
+    } else {
+      if (inList) { wrappedLines.push("</ul>"); inList = false; }
+      wrappedLines.push(line);
+    }
+  }
+  if (inList) wrappedLines.push("</ul>");
+  html = wrappedLines.join("\n");
+
+  html = html.split("\n").map((line: string) => {
+    const t = line.trim();
+    if (!t) return "";
+    if (t.startsWith("<")) return line;
+    if (t.startsWith("__HPCODE_")) return line;
+    return `<p>${line}</p>`;
+  }).join("\n");
+
+  codeBlocks.forEach((block: string, idx: number) => {
+    html = html.replace(`__HPCODE_${idx}__`, block);
+    html = html.replace(`<p>__HPCODE_${idx}__</p>`, block);
+  });
+
+  return html;
+}
+
+
+interface HuntPlanModalProps {
+  userQuery: string;
+  xqlQuery: string;
+  attackRef?: AttackRef | null;
+  tenantSchemaContext?: string;
+  onClose: () => void;
+}
+
+function HuntPlanModal({ userQuery, xqlQuery, attackRef, tenantSchemaContext, onClose }: HuntPlanModalProps) {
+  const [planText, setPlanText] = useState('');
+  const [streaming, setStreaming] = useState(true);
+  const [copied, setCopied] = useState(false);
+  const bodyRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    (window as any).copyHpCode = (btn: HTMLButtonElement) => {
+      const pre = btn.closest('.hp-code-block')?.querySelector('pre code');
+      if (!pre) return;
+      navigator.clipboard.writeText(pre.textContent || '').then(() => {
+        btn.textContent = '✓ COPIED';
+        setTimeout(() => { btn.textContent = '> COPY'; }, 2000);
+      });
+    };
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    async function fetchPlan() {
+      try {
+        const res = await fetch('/api/hunt-plan', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ userQuery, xqlQuery, attackRef, tenantSchemaContext }),
+        });
+        if (!res.body) return;
+        const reader = res.body.getReader();
+        const decoder = new TextDecoder();
+        let full = '';
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done || cancelled) break;
+          full += decoder.decode(value, { stream: true });
+          setPlanText(full);
+          // Auto-scroll body
+          if (bodyRef.current) {
+            bodyRef.current.scrollTop = bodyRef.current.scrollHeight;
+          }
+        }
+        if (!cancelled) setStreaming(false);
+      } catch {
+        if (!cancelled) { setPlanText('**ERROR** — Failed to generate hunt plan.'); setStreaming(false); }
+      }
+    }
+    fetchPlan();
+    return () => { cancelled = true; };
+  }, []);
+
+  const handleCopyAll = () => {
+    navigator.clipboard.writeText(planText).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2500);
+    });
+  };
+
+  const handleDownload = () => {
+    const blob = new Blob([planText], { type: 'text/markdown' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    const slug = userQuery.slice(0, 40).replace(/[^a-z0-9]/gi, '-').toLowerCase();
+    a.href = url;
+    a.download = `hunt-plan-${slug}.md`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  return (
+    <div className="hunt-modal-overlay" onClick={onClose}>
+      <div className="hunt-modal" onClick={e => e.stopPropagation()}>
+        <div className="hunt-modal-header">
+          <div>
+            <div className="hunt-modal-title">⟴ Structured Hunt Plan</div>
+            <div className="hunt-modal-sub">
+              PEAK METHODOLOGY · ATT&CK ALIGNED
+              {attackRef && <span style={{ color: 'rgba(255,107,53,0.8)', marginLeft: '10px' }}>{attackRef.techniqueId} · {attackRef.tactic}</span>}
+              {streaming && <span style={{ color: 'var(--accent-yellow)', marginLeft: '10px', animation: 'pulse-dot 1.5s infinite' }}>GENERATING...</span>}
+            </div>
+          </div>
+          <div className="hunt-modal-actions">
+            {!streaming && (
+              <>
+                <button className="hunt-action-btn" onClick={handleCopyAll}>
+                  {copied ? '✓ COPIED' : '⎘ COPY MD'}
+                </button>
+                <button className="hunt-action-btn primary" onClick={handleDownload}>
+                  ↓ DOWNLOAD .MD
+                </button>
+              </>
+            )}
+            <button onClick={onClose} style={{ background: 'none', border: 'none', color: 'var(--text-dim)', fontSize: '18px', cursor: 'pointer', padding: '0 4px', marginLeft: '4px' }}>✕</button>
+          </div>
+        </div>
+
+        <div className="hunt-modal-body" ref={bodyRef}>
+          <div
+            className="hunt-plan-content"
+            dangerouslySetInnerHTML={{
+              __html: parseHuntPlanMarkdown(planText) + (streaming ? '<span class="streaming-cursor"></span>' : ''),
+            }}
+          />
+        </div>
+
+        <div className="hunt-modal-footer">
+          <span style={{ fontFamily: 'var(--font-mono)', fontSize: '9px', color: 'var(--text-dim)', letterSpacing: '0.1em' }}>
+            {streaming ? 'GENERATING HUNT PLAN...' : `HUNT PLAN COMPLETE · ${planText.length} CHARS`}
+          </span>
+          <button className="hunt-action-btn" onClick={onClose}>CLOSE</button>
+        </div>
+      </div>
     </div>
   );
 }
@@ -355,6 +616,12 @@ export default function Home() {
   const [loading, setLoading] = useState(false);
   const [validating, setValidating] = useState(false);
   const [tenantSchema, setTenantSchema] = useState<TenantSchema | null>(null);
+  const [pendingAttack, setPendingAttack] = useState<AttackRef | null>(null);
+  const [huntPlanTarget, setHuntPlanTarget] = useState<{
+    userQuery: string;
+    xqlQuery: string;
+    attackRef?: AttackRef | null;
+  } | null>(null);
   const [showSchemaModal, setShowSchemaModal] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -380,7 +647,7 @@ export default function Home() {
     setShowSchemaModal(false);
   }, []);
 
-  const sendMessage = useCallback(async (text: string) => {
+  const sendMessage = useCallback(async (text: string, attackRef?: AttackRef | null) => {
     if (!text.trim() || loading) return;
     const userMsg: Message = { role: "user", content: text.trim() };
     const newMessages = [...messages, userMsg];
@@ -389,7 +656,8 @@ export default function Home() {
     setLoading(true);
     setValidating(true);
 
-    setMessages([...newMessages, { role: "assistant", content: "", streaming: true, validation: null }]);
+    setPendingAttack(attackRef || null);
+    setMessages([...newMessages, { role: "assistant", content: "", streaming: true, validation: null, attack: null }]);
 
     try {
       const tenantSchemaContext = tenantSchema ? schemaToPromptContext(tenantSchema) : undefined;
@@ -441,7 +709,18 @@ export default function Home() {
       if (buffer) fullText += buffer;
       setMessages((prev) => {
         const updated = [...prev];
-        updated[updated.length - 1] = { role: "assistant", content: fullText, streaming: false, validation };
+        // Extract XQL for hunt plan button
+        const xqlMatch = fullText.match(/```(?:xql)?[\s\S]*?([\s\S]+?)```/);
+        const extractedXql = xqlMatch ? xqlMatch[1].trim() : null;
+        updated[updated.length - 1] = {
+          role: "assistant",
+          content: fullText,
+          streaming: false,
+          validation,
+          attack: attackRef || null,
+          xqlQuery: extractedXql,
+          userQuery: text,
+        };
         return updated;
       });
     } catch {
@@ -472,6 +751,15 @@ export default function Home() {
       <div className="corner-tl" /><div className="corner-tr" /><div className="corner-bl" /><div className="corner-br" />
 
       {showSchemaModal && <SchemaModal onClose={() => setShowSchemaModal(false)} onImport={handleSchemaImport} />}
+      {huntPlanTarget && (
+        <HuntPlanModal
+          userQuery={huntPlanTarget.userQuery}
+          xqlQuery={huntPlanTarget.xqlQuery}
+          attackRef={huntPlanTarget.attackRef}
+          tenantSchemaContext={tenantSchema ? schemaToPromptContext(tenantSchema) : undefined}
+          onClose={() => setHuntPlanTarget(null)}
+        />
+      )}
 
       <div className="app-shell">
         {/* Header */}
@@ -524,9 +812,10 @@ export default function Home() {
             <div className="hunt-marquee-wrap">
               <div className="hunt-marquee-track">
                 {[...HUNT_IDEAS, ...HUNT_IDEAS].map((idea, i) => (
-                  <div key={i} className="hunt-idea-row" onClick={() => sendMessage(idea)} title="Click to hunt this">
+                  <div key={i} className="hunt-idea-row" onClick={() => sendMessage(idea.text, { techniqueId: idea.techniqueId, techniqueName: idea.techniqueName, tactic: idea.tactic, url: idea.url })} title={"Hunt: " + idea.techniqueId + " · " + idea.techniqueName}>
                     <span className="hunt-idea-bullet">&#9658;</span>
-                    <span className="hunt-idea-text">{idea}</span>
+                    <span className="hunt-idea-text">{idea.text}</span>
+                    <span className="hunt-idea-technique">{idea.techniqueId}</span>
                   </div>
                 ))}
               </div>
@@ -576,6 +865,19 @@ export default function Home() {
                       {msg.role === "assistant" ? (
                         <>
                           <div dangerouslySetInnerHTML={{ __html: parseMarkdown(msg.content, msg.streaming || false) }}/>
+                          {msg.attack && !msg.streaming && <AttackBadge a={msg.attack} />}
+                          {msg.xqlQuery && !msg.streaming && (
+                            <button
+                              className="hunt-plan-btn"
+                              onClick={() => setHuntPlanTarget({
+                                userQuery: msg.userQuery || "",
+                                xqlQuery: msg.xqlQuery || "",
+                                attackRef: msg.attack,
+                              })}
+                            >
+                              ⟴ BUILD HUNT PLAN
+                            </button>
+                          )}
                           {msg.validation && !msg.streaming && <ValidationBadge v={msg.validation} />}
                         </>
                       ) : msg.content}
