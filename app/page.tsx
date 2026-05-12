@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useRef, useEffect, useCallback } from "react";
-import { STARTER_PROMPTS } from "./corpus";
+import { STARTER_PROMPTS, HUNT_IDEAS } from "./corpus";
 import { parseTenantSchema, schemaToPromptContext, TenantSchema, DISCOVERY_QUERIES as DQ } from "./schemaParser";
 
 // ─── TYPES ───────────────────────────────────────────────────────────────────
@@ -517,8 +517,24 @@ export default function Home() {
         {/* Main */}
         <div className="main-layout">
           <aside className="sidebar">
+            {/* Marquee — hunt ideas */}
             <div className="sidebar-section">
-              <div className="sidebar-label">Hunt Starters</div>
+              <div className="sidebar-label">Hunt Ideas</div>
+            </div>
+            <div className="hunt-marquee-wrap">
+              <div className="hunt-marquee-track">
+                {[...HUNT_IDEAS, ...HUNT_IDEAS].map((idea, i) => (
+                  <div key={i} className="hunt-idea-row" onClick={() => sendMessage(idea)} title="Click to hunt this">
+                    <span className="hunt-idea-bullet">&#9658;</span>
+                    <span className="hunt-idea-text">{idea}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            {/* Clickable starter chips */}
+            <div className="sidebar-section">
+              <div className="sidebar-label">Quick Start</div>
             </div>
             <div className="starter-prompts">
               {STARTER_PROMPTS.map((prompt, i) => (
