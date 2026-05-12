@@ -386,3 +386,65 @@ export const STARTER_PROMPTS = [
   "Find lateral movement indicators — admin share connections from unexpected processes",
   "Hunt for registry persistence mechanisms added in the last 7 days",
 ];
+
+export const HUNT_IDEAS = [
+  // Process & Execution
+  "PowerShell downloading files with Invoke-WebRequest or WebClient",
+  "cmd.exe spawned directly by a browser process",
+  "mshta.exe executing a remote script URL",
+  "regsvr32.exe loading a DLL from a network path — Squiblydoo",
+  "certutil.exe used to decode or download a payload",
+  "wmic.exe spawning unexpected child processes",
+  "rundll32.exe calling an uncommon or suspicious export",
+  "executables launched from user temp or download directories",
+  "scripts running from %APPDATA% or %LOCALAPPDATA%",
+  "double-extension files — invoice.pdf.exe or report.docx.scr",
+
+  // Credential Access
+  "ntdsutil.exe accessing the Active Directory database",
+  "vssadmin deleting or resizing shadow copies — ransomware precursor",
+  "SAM registry hive read by a non-system process",
+  "LSASS memory access from an unsigned or unexpected process",
+  "procdump.exe or comsvcs.dll MiniDump targeting lsass",
+  "secretsdump or impacket patterns in process command lines",
+  "Kerberoasting — unusual LDAP queries for service principal names",
+  "DCSync — AD replication requests originating from a non-DC",
+  "LaZagne or credential harvesting tool name in process list",
+  "Windows Credential Editor or wce.exe execution",
+
+  // Lateral Movement
+  "PsExec or similar remote execution tool activity",
+  "WMI remote process creation across multiple endpoints",
+  "RDP connections between workstations — not server to client",
+  "DCOM lateral movement via MMC20 or ShellBrowserWindow",
+  "net use commands mounting administrative shares",
+  "schtasks /s creating scheduled tasks on remote hosts",
+  "sc.exe installing a service remotely",
+  "unexpected SSH lateral movement from internal Windows hosts",
+  "WinRM connections from non-privileged workstations",
+  "NTLM authentication with mismatched source hostname — pass-the-hash",
+
+  // Persistence
+  "new Windows services installed outside of known patch windows",
+  "unsigned DLLs appearing in System32 — DLL hijacking",
+  "COM object hijacking entries written to HKCU hive",
+  "startup folder file drops by non-installer processes",
+  "WMI event subscriptions created or modified",
+  "AppInit_DLLs registry key written by a user process",
+  "screensaver executable path changed in user registry",
+  "LSA security package or notification package modifications",
+  "Office template file modifications — macro persistence",
+  "BITS jobs created by unexpected processes",
+
+  // Discovery & Exfiltration
+  "DNS TXT record queries — potential DNS tunneling or exfiltration",
+  "large outbound data transfer to a new external destination",
+  "rclone or cloud sync tools running outside business hours",
+  "adfind.exe Active Directory reconnaissance commands",
+  "nltest.exe domain trust or DC enumeration",
+  "net group 'domain admins' enumeration from a workstation",
+  "internal port scan or ping sweep from a user endpoint",
+  "curl or wget downloading an executable to a temp path",
+  "high-entropy command line arguments — obfuscation or encoding",
+  "outbound connections on non-standard ports from Office applications",
+];
