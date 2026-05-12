@@ -220,8 +220,9 @@ body::after {
 }
 
 .sidebar-section {
-  padding: 16px;
+  padding: 10px 16px;
   border-bottom: 1px solid var(--border-dim);
+  flex-shrink: 0;
 }
 
 .sidebar-label {
@@ -230,7 +231,6 @@ body::after {
   color: var(--text-dim);
   letter-spacing: 0.2em;
   text-transform: uppercase;
-  margin-bottom: 10px;
   display: flex;
   align-items: center;
   gap: 6px;
@@ -242,13 +242,97 @@ body::after {
   opacity: 0.5;
 }
 
+/* ─── HUNT IDEAS MARQUEE ─── */
+.hunt-marquee-wrap {
+  flex-shrink: 0;
+  overflow: hidden;
+  position: relative;
+  border-bottom: 1px solid var(--border-dim);
+  background: var(--bg-void);
+  height: 220px;
+}
+
+.hunt-marquee-wrap::before,
+.hunt-marquee-wrap::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: 28px;
+  z-index: 2;
+  pointer-events: none;
+}
+.hunt-marquee-wrap::before {
+  top: 0;
+  background: linear-gradient(180deg, var(--bg-void) 0%, transparent 100%);
+}
+.hunt-marquee-wrap::after {
+  bottom: 0;
+  background: linear-gradient(0deg, var(--bg-void) 0%, transparent 100%);
+}
+
+.hunt-marquee-track {
+  display: flex;
+  flex-direction: column;
+  animation: marquee-scroll 140s linear infinite;
+  padding: 8px 0;
+}
+
+.hunt-marquee-wrap:hover .hunt-marquee-track {
+  animation-play-state: paused;
+}
+
+@keyframes marquee-scroll {
+  0%   { transform: translateY(0); }
+  100% { transform: translateY(-50%); }
+}
+
+.hunt-idea-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 7px;
+  padding: 4px 14px;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+.hunt-idea-row:hover {
+  background: rgba(0, 200, 255, 0.05);
+}
+
+.hunt-idea-bullet {
+  color: var(--accent-cyan);
+  font-family: var(--font-mono);
+  font-size: 9px;
+  opacity: 0.4;
+  flex-shrink: 0;
+  margin-top: 3px;
+}
+
+.hunt-idea-text {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--text-dim);
+  line-height: 1.55;
+  transition: color 0.15s;
+}
+
+.hunt-idea-row:hover .hunt-idea-text {
+  color: var(--text-secondary);
+}
+
+.hunt-idea-row:hover .hunt-idea-bullet {
+  opacity: 1;
+}
+
+/* ─── STARTER CHIPS ─── */
 .starter-prompts {
   display: flex;
   flex-direction: column;
   gap: 4px;
   flex: 1;
   overflow-y: auto;
-  padding: 12px;
+  padding: 10px 12px;
 }
 
 .starter-prompts::-webkit-scrollbar {
