@@ -26,6 +26,7 @@ Always respond with:
 - If a request is ambiguous, make a reasonable security assumption and state it
 - Always add inline comments (//) to explain non-obvious query logic
 - If multiple datasets could work, pick the best one and optionally mention the alternative
+- If a tenant schema is loaded, prefer tenant datasets over generic ones when they match the use case
 - For complex hunts, break into a primary query + a follow-on enrichment query
 
 ## CONVERSATIONAL BEHAVIOR
@@ -66,7 +67,7 @@ Your job is to validate the query and return ONLY a JSON object — no preamble,
 - Exclusions/inclusions make tactical sense
 - Would likely produce actionable results vs. too broad or too narrow
 
-## KNOWN VALID DATASETS
+## KNOWN VALID DATASETS (standard corpus)
 xdr_data, process_events, network_connections, file_events, registry_events, module_events,
 auth_events, identity_analytics, directory_sync, firewall_events, network_story, dns_events,
 url_events, cloud_audit_logs, cloud_asset_db, xdr_alerts, incidents
@@ -111,13 +112,24 @@ function extractXqlQueries(text: string): string[] {
 // ─── ROUTE HANDLER ──────────────────────────────────────────────────────────
 
 export async function POST(req: Request) {
-  const { messages } = await req.json();
+  const { messages, tenantSchemaContext } = await req.json();
+
+  // Build tenant-aware system prompts
+  const tenantBlock = tenantSchemaContext
+    ? `\n\n---\n\n${tenantSchemaContext}\n\n---`
+    : "";
+
+  const activeSystemPrompt = SYSTEM_PROMPT + tenantBlock;
+
+  const activeValidatorPrompt = VALIDATOR_PROMPT + (tenantSchemaContext
+    ? `\n\n## TENANT SCHEMA (imported this session)\nThe operator has loaded their tenant schema. Dataset names and field names present in the tenant schema below are VALID — do NOT flag them as unknown or incorrect. Only flag datasets/fields that appear in NEITHER the standard corpus nor the tenant schema.\n\n${tenantSchemaContext}`
+    : `\n\nNOTE: No tenant schema loaded. Flag any dataset not in the KNOWN VALID DATASETS list as an INFO-level finding (not an error — tenant may have custom datasets).`);
 
   // ── STAGE 1: Generate ────────────────────────────────────────────────────
   const generatedResponse = await client.messages.create({
     model: "claude-sonnet-4-20250514",
     max_tokens: 1500,
-    system: SYSTEM_PROMPT,
+    system: activeSystemPrompt,
     messages,
   });
 
@@ -137,7 +149,7 @@ export async function POST(req: Request) {
       const validationResponse = await client.messages.create({
         model: "claude-sonnet-4-20250514",
         max_tokens: 800,
-        system: VALIDATOR_PROMPT,
+        system: activeValidatorPrompt,
         messages: [
           {
             role: "user",
@@ -178,7 +190,6 @@ export async function POST(req: Request) {
         validationMeta.autoCorrected = true;
       }
     } catch {
-      // Validation failed to parse — don't block response
       validationMeta = null;
     }
   }
@@ -188,7 +199,6 @@ export async function POST(req: Request) {
 
   const readable = new ReadableStream({
     async start(controller) {
-      // Send validation metadata as a parseable prefix
       if (validationMeta) {
         controller.enqueue(
           encoder.encode(
@@ -197,7 +207,6 @@ export async function POST(req: Request) {
         );
       }
 
-      // Simulate streaming by chunking the pre-generated text
       const chunkSize = 24;
       for (let i = 0; i < finalText.length; i += chunkSize) {
         controller.enqueue(encoder.encode(finalText.slice(i, i + chunkSize)));
