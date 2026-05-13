@@ -386,7 +386,13 @@ export const STARTER_PROMPTS = [
   "Find lateral movement indicators — admin share connections from unexpected processes",
   "Hunt for registry persistence mechanisms added in the last 7 days",
 ];
-
+export interface HuntIdea {
+  text: string;
+  tactic: string;
+  techniqueId: string;
+  techniqueName: string;
+  url: string;
+}
 export const HUNT_IDEAS = [
   // Process & Execution
   "PowerShell downloading files with Invoke-WebRequest or WebClient",
