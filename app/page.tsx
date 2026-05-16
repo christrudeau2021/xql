@@ -617,6 +617,7 @@ export default function Home() {
   const [validating, setValidating] = useState(false);
   const [tenantSchema, setTenantSchema] = useState<TenantSchema | null>(null);
   const [pendingAttack, setPendingAttack] = useState<AttackRef | null>(null);
+  const [sidebarOpen, setSidebarOpen] = useState(false);
   const [huntPlanTarget, setHuntPlanTarget] = useState<{
     userQuery: string;
     xqlQuery: string;
@@ -762,8 +763,15 @@ export default function Home() {
       )}
 
       <div className="app-shell">
+        {/* Sidebar overlay for mobile */}
+        <div className={`sidebar-overlay${sidebarOpen ? " open" : ""}`} onClick={() => setSidebarOpen(false)} />
+
         {/* Header */}
         <header className="header">
+          <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
+            <button className="sidebar-toggle" onClick={() => setSidebarOpen(true)} aria-label="Open menu">
+              ☰
+            </button>
           <div className="header-logo">
             <div className="logo-icon">
               <svg viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg">
@@ -777,6 +785,7 @@ export default function Home() {
               <div className="logo-text">XQL<span>Shield</span></div>
               <div className="logo-sub">Cortex XDR · XSIAM · Query Translator</div>
             </div>
+          </div>
           </div>
           <div className="header-status">
             {/* Tenant schema indicator */}
@@ -804,7 +813,12 @@ export default function Home() {
 
         {/* Main */}
         <div className="main-layout">
-          <aside className="sidebar">
+          <aside className={`sidebar${sidebarOpen ? " mobile-open" : ""}`}>
+            {/* Mobile close button */}
+            <div className="sidebar-close">
+              <span style={{ fontFamily: "var(--font-mono)", fontSize: "10px", color: "var(--text-dim)", letterSpacing: "0.15em" }}>// HUNT IDEAS</span>
+              <button className="sidebar-close-btn" onClick={() => setSidebarOpen(false)}>✕</button>
+            </div>
             {/* Marquee — hunt ideas */}
             <div className="sidebar-section">
               <div className="sidebar-label">Hunt Ideas</div>
@@ -812,7 +826,7 @@ export default function Home() {
             <div className="hunt-marquee-wrap">
               <div className="hunt-marquee-track">
                 {[...HUNT_IDEAS, ...HUNT_IDEAS].map((idea, i) => (
-                  <div key={i} className="hunt-idea-row" onClick={() => sendMessage(idea.text, { techniqueId: idea.techniqueId, techniqueName: idea.techniqueName, tactic: idea.tactic, url: idea.url })} title={"Hunt: " + idea.techniqueId + " · " + idea.techniqueName}>
+                  <div key={i} className="hunt-idea-row" onClick={() => { sendMessage(idea.text, { techniqueId: idea.techniqueId, techniqueName: idea.techniqueName, tactic: idea.tactic, url: idea.url }); setSidebarOpen(false); }} title={"Hunt: " + idea.techniqueId + " · " + idea.techniqueName}>
                     <span className="hunt-idea-bullet">&#9658;</span>
                     <span className="hunt-idea-text">{idea.text}</span>
                     <span className="hunt-idea-technique">{idea.techniqueId}</span>
@@ -827,7 +841,7 @@ export default function Home() {
             </div>
             <div className="starter-prompts">
               {STARTER_PROMPTS.map((prompt, i) => (
-                <button key={i} className="prompt-chip" onClick={() => sendMessage(prompt)} disabled={loading}>{prompt}</button>
+                <button key={i} className="prompt-chip" onClick={() => { sendMessage(prompt); setSidebarOpen(false); }} disabled={loading}>{prompt}</button>
               ))}
             </div>
           </aside>
