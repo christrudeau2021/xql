@@ -1145,3 +1145,372 @@ body::after {
   background: rgba(255,214,10,0.14);
   border-color: var(--accent-yellow);
 }
+
+/* ═══════════════════════════════════════════════════════════════
+   MOBILE RESPONSIVE — full overhaul
+   Strategy:
+   - Mobile (<768px): sidebar hidden, bottom sheet drawer, larger tap targets
+   - Tablet (768-1024px): narrow sidebar, compressed header
+   - Desktop (>1024px): full layout as designed
+   ═══════════════════════════════════════════════════════════════ */
+
+/* ─── MOBILE DRAWER TOGGLE BUTTON ─── */
+.sidebar-toggle {
+  display: none;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  background: none;
+  border: 1px solid var(--border-glow);
+  color: var(--accent-cyan);
+  font-size: 16px;
+  cursor: pointer;
+  border-radius: var(--radius);
+  flex-shrink: 0;
+}
+
+/* ─── MOBILE SIDEBAR OVERLAY ─── */
+.sidebar-overlay {
+  display: none;
+  position: fixed;
+  inset: 0;
+  background: rgba(2, 6, 8, 0.85);
+  z-index: 50;
+}
+
+.sidebar-overlay.open {
+  display: block;
+}
+
+/* ─── TABLET (768px - 1024px) ─── */
+@media (max-width: 1024px) {
+  .sidebar {
+    width: 220px;
+  }
+
+  .logo-sub {
+    display: none;
+  }
+
+  .logo-text {
+    font-size: 18px;
+  }
+
+  .header-status {
+    gap: 10px;
+  }
+
+  .status-badge {
+    font-size: 9px;
+  }
+
+  .model-badge {
+    display: none;
+  }
+
+  .messages-container {
+    padding: 16px;
+  }
+
+  .input-area {
+    padding: 12px 16px 16px;
+  }
+}
+
+/* ─── MOBILE (<768px) ─── */
+@media (max-width: 767px) {
+
+  /* Allow body to scroll properly on mobile */
+  html, body {
+    overflow: hidden;
+    position: fixed;
+    width: 100%;
+    height: 100%;
+  }
+
+  /* App shell fills viewport */
+  .app-shell {
+    height: 100dvh; /* dynamic viewport height — handles mobile browser chrome */
+    height: 100vh;  /* fallback */
+  }
+
+  /* ── Header ── */
+  .header {
+    height: 48px;
+    padding: 0 12px;
+  }
+
+  .logo-icon {
+    width: 26px;
+    height: 26px;
+  }
+
+  .logo-text {
+    font-size: 16px;
+    letter-spacing: 0.06em;
+  }
+
+  .logo-sub {
+    display: none;
+  }
+
+  .header-status {
+    gap: 8px;
+  }
+
+  .status-badge {
+    display: none; /* hide ONLINE text — just keep dot if needed */
+  }
+
+  .model-badge {
+    display: none;
+  }
+
+  /* Show sidebar toggle on mobile */
+  .sidebar-toggle {
+    display: flex;
+  }
+
+  /* ── Sidebar — slide-in drawer on mobile ── */
+  .main-layout {
+    position: relative;
+  }
+
+  .sidebar {
+    position: fixed;
+    top: 0;
+    left: 0;
+    bottom: 0;
+    width: 85vw;
+    max-width: 320px;
+    z-index: 60;
+    transform: translateX(-100%);
+    transition: transform 0.28s cubic-bezier(0.4, 0, 0.2, 1);
+    box-shadow: 4px 0 24px rgba(0, 0, 0, 0.6);
+  }
+
+  .sidebar.mobile-open {
+    transform: translateX(0);
+  }
+
+  /* Close button inside drawer */
+  .sidebar-close {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 12px 16px;
+    border-bottom: 1px solid var(--border-dim);
+    flex-shrink: 0;
+  }
+
+  .sidebar-close-btn {
+    background: none;
+    border: none;
+    color: var(--text-dim);
+    font-size: 20px;
+    cursor: pointer;
+    padding: 4px 8px;
+    line-height: 1;
+  }
+
+  /* Marquee height reduced on mobile */
+  .hunt-marquee-wrap {
+    height: 160px;
+  }
+
+  /* Larger tap targets for hunt ideas */
+  .hunt-idea-row {
+    padding: 8px 14px;
+    min-height: 44px;
+    align-items: center;
+  }
+
+  .hunt-idea-text {
+    font-size: 11px;
+  }
+
+  /* Larger tap targets for prompt chips */
+  .prompt-chip {
+    padding: 10px 12px;
+    font-size: 12px;
+    min-height: 44px;
+  }
+
+  /* ── Chat area fills full width ── */
+  .chat-area {
+    width: 100%;
+  }
+
+  /* ── Messages ── */
+  .messages-container {
+    padding: 12px;
+    gap: 14px;
+  }
+
+  .message-bubble {
+    max-width: 100%;
+    font-size: 13px;
+    padding: 10px 12px;
+  }
+
+  .message-role {
+    font-size: 8px;
+  }
+
+  /* Code blocks — horizontal scroll on mobile */
+  .code-block-wrapper pre {
+    font-size: 11px;
+    padding: 10px 12px;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  /* ── Input area ── */
+  .input-area {
+    padding: 10px 12px 12px;
+  }
+
+  .input-wrapper {
+    padding: 10px 12px;
+  }
+
+  .chat-input {
+    font-size: 16px; /* prevents iOS zoom on focus */
+  }
+
+  .send-btn {
+    width: 40px;
+    height: 40px;
+    font-size: 18px;
+    flex-shrink: 0;
+  }
+
+  .input-footer {
+    margin-top: 6px;
+  }
+
+  .input-hint {
+    font-size: 8px;
+  }
+
+  /* ── Welcome screen ── */
+  .welcome {
+    padding: 24px 20px;
+    gap: 12px;
+  }
+
+  .welcome-icon {
+    width: 48px;
+    height: 48px;
+  }
+
+  .welcome h1 {
+    font-size: 24px;
+  }
+
+  .welcome p {
+    font-size: 12px;
+  }
+
+  .welcome-tags {
+    gap: 6px;
+  }
+
+  .tag {
+    font-size: 9px;
+    padding: 2px 8px;
+  }
+
+  /* ── Validation badge ── */
+  .attack-chip {
+    font-size: 9px;
+    padding: 3px 7px;
+  }
+
+  /* ── Hunt plan button ── */
+  .hunt-plan-btn {
+    font-size: 9px;
+    padding: 6px 10px;
+    width: 100%;
+    justify-content: center;
+    margin-top: 8px;
+  }
+
+  /* ── Modals — full screen on mobile ── */
+  .hunt-modal {
+    width: 100%;
+    max-width: 100%;
+    height: 100dvh;
+    height: 100vh;
+    border-radius: 0;
+    border-left: none;
+    border-right: none;
+  }
+
+  .hunt-modal-body {
+    padding: 16px;
+  }
+
+  .hunt-plan-content h1 {
+    font-size: 16px;
+  }
+
+  .hunt-plan-content h2 {
+    font-size: 11px;
+  }
+
+  .hunt-plan-content p,
+  .hunt-plan-content li {
+    font-size: 11px;
+  }
+
+  .hunt-plan-content table {
+    font-size: 10px;
+    display: block;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  /* Schema modal full screen */
+  .hunt-modal-overlay > div:not(.hunt-modal) {
+    width: 100%;
+    max-width: 100%;
+    height: 100dvh;
+    height: 100vh;
+    border-radius: 0;
+  }
+
+  /* Corner decorations — hide on mobile */
+  .corner-tl, .corner-tr, .corner-bl, .corner-br {
+    display: none;
+  }
+
+  /* Schema modal tabs — scrollable */
+  .sidebar-section {
+    padding: 8px 12px;
+  }
+}
+
+/* ─── SMALL MOBILE (<380px) ─── */
+@media (max-width: 380px) {
+  .logo-text {
+    font-size: 14px;
+  }
+
+  .welcome h1 {
+    font-size: 20px;
+  }
+
+  .message-bubble {
+    padding: 8px 10px;
+    font-size: 12px;
+  }
+}
+
+/* ─── SAFE AREA (notch/home bar) ─── */
+@supports (padding-bottom: env(safe-area-inset-bottom)) {
+  .input-area {
+    padding-bottom: calc(12px + env(safe-area-inset-bottom));
+  }
+}
