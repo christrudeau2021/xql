@@ -1295,15 +1295,16 @@ body::after {
   display: none;
   align-items: center;
   justify-content: center;
-  width: 36px;
-  height: 36px;
-  background: none;
-  border: 1px solid var(--border-glow);
+  width: 40px;
+  height: 40px;
+  background: rgba(0, 200, 255, 0.12);
+  border: 1px solid var(--accent-cyan);
   color: var(--accent-cyan);
-  font-size: 16px;
+  font-size: 18px;
   cursor: pointer;
   border-radius: var(--radius);
   flex-shrink: 0;
+  box-shadow: 0 0 10px rgba(0, 200, 255, 0.2);
 }
 
 /* ─── MOBILE SIDEBAR OVERLAY ─── */
