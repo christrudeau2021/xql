@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useRef, useEffect, useCallback } from "react";
+import React, { useState, useRef, useEffect, useCallback } from "react";
 import { STARTER_PROMPTS, HUNT_IDEAS, HuntIdea } from "./corpus";
 import { PLATFORMS, getPlatform, Platform } from "./platformTypes";
 import { HUNT_HYPOTHESES, TACTICS, HuntHypothesis } from "./huntHypotheses";
@@ -767,6 +767,41 @@ function escapeHtml(text: string): string {
   return text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 }
 
+// ─── PLATFORM WORKFLOW BANNER (mobile) ───────────────────────────────────────
+// Shows the 3-step workflow with active platform on mobile
+function PlatformBanner({ platform, step }: { platform: Platform; step: 1|2|3 }) {
+  const cfg = getPlatform(platform);
+  const steps = [
+    { n: 1, label: "Select Platform" },
+    { n: 2, label: "Write Query" },
+    { n: 3, label: "Hunt Plan" },
+  ];
+  return (
+    <div className="platform-banner" style={{ "--platform-color": cfg.color } as React.CSSProperties}>
+      <span className="platform-active-chip" style={{
+        background: cfg.bgColor,
+        border: `1px solid ${cfg.borderColor}`,
+        color: cfg.color,
+        marginRight: "4px",
+      }}>
+        {cfg.label}
+      </span>
+      {steps.map((s, i) => (
+        <React.Fragment key={s.n}>
+          {i > 0 && <span className="platform-banner-arrow">›</span>}
+          <div className={`platform-banner-step${step >= s.n ? " active" : ""}`}>
+            <span className="platform-banner-step-num" style={
+              step >= s.n ? { background: cfg.color, borderColor: cfg.color, color: "#020608" } : {}
+            }>{s.n}</span>
+            <span>{s.label}</span>
+          </div>
+        </React.Fragment>
+      ))}
+    </div>
+  );
+}
+
+
 // ─── MAIN COMPONENT ───────────────────────────────────────────────────────────
 
 export default function Home() {
@@ -777,6 +812,7 @@ export default function Home() {
   const [tenantSchema, setTenantSchema] = useState<TenantSchema | null>(null);
   const [pendingAttack, setPendingAttack] = useState<AttackRef | null>(null);
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [workflowStep, setWorkflowStep] = useState<1|2|3>(1);
   const [platform, setPlatform] = useState<Platform>("xql");
   const platformRef = useRef<Platform>("xql");
   const [activeTactic, setActiveTactic] = useState<string>("ALL");
@@ -821,6 +857,7 @@ export default function Home() {
     setInput("");
     setLoading(true);
     setValidating(true);
+    setWorkflowStep(2);
 
     setPendingAttack(attackRef || null);
     setMessages([...newMessages, { role: "assistant", content: "", streaming: true, validation: null, attack: null }]);
@@ -957,7 +994,9 @@ export default function Home() {
           </div>
           </div>
           <div className="header-status">
-            <PlatformSelector current={platform} onChange={p => { setPlatform(p); }} />
+            <div className="platform-selector-wrap">
+              <PlatformSelector current={platform} onChange={p => { setPlatform(p); setWorkflowStep(1); }} />
+            </div>
             {/* Tenant schema indicator */}
             {tenantSchema ? (
               <button onClick={() => setTenantSchema(null)} title="Click to clear tenant schema" style={{ display: "flex", alignItems: "center", gap: "6px", background: "rgba(0,255,157,0.06)", border: "1px solid rgba(0,255,157,0.3)", color: "#00ff9d", fontFamily: "var(--font-mono)", fontSize: "9px", padding: "3px 10px", cursor: "pointer", letterSpacing: "0.1em" }}>
@@ -980,6 +1019,9 @@ export default function Home() {
             <div className="model-badge">SONNET 4</div>
           </div>
         </header>
+
+        {/* Platform workflow banner — visible on mobile */}
+        <PlatformBanner platform={platform} step={workflowStep} />
 
         {/* Main */}
         <div className="main-layout">
@@ -1024,6 +1066,22 @@ export default function Home() {
           </aside>
 
           <div className="chat-area">
+            {/* Platform context indicator — visible in chat area */}
+            {(() => {
+              const cfg = getPlatform(platform);
+              return (
+                <div className="chat-platform-indicator" style={{ borderBottom: `1px solid ${cfg.borderColor}`, background: cfg.bgColor.replace("0.07","0.03") }}>
+                  <span className="chat-platform-label">Active Platform:</span>
+                  <span className="chat-platform-name" style={{ color: cfg.color }}>{cfg.label}</span>
+                  <span style={{ color: "var(--text-dim)", fontFamily: "var(--font-mono)", fontSize: "9px" }}>·</span>
+                  <span className="chat-platform-vendor">{cfg.vendor}</span>
+                  <span style={{ flex: 1 }} />
+                  <span style={{ fontFamily: "var(--font-mono)", fontSize: "9px", color: "var(--text-dim)", letterSpacing: "0.1em" }}>
+                    STEP 1 SELECT · STEP 2 QUERY · STEP 3 HUNT PLAN
+                  </span>
+                </div>
+              );
+            })()}
             <div className="messages-container">
               {messages.length === 0 ? (
                 <div className="welcome">
@@ -1060,12 +1118,12 @@ export default function Home() {
                           {msg.xqlQuery && !msg.streaming && (
                             <button
                               className="hunt-plan-btn"
-                              onClick={() => setHuntPlanTarget({
+                              onClick={() => { setWorkflowStep(3); setHuntPlanTarget({
                                 userQuery: msg.userQuery || "",
                                 xqlQuery: msg.xqlQuery || "",
                                 attackRef: msg.attack,
                                 platform: msg.platform,
-                              })}
+                              }); }}
                             >
                               ⟴ BUILD HUNT PLAN
                             </button>
