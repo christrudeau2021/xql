@@ -258,6 +258,51 @@ union (
 
 ---
 
+
+### KERBEROASTING IN XQL (T1558.003)
+
+In Cortex XDR/XSIAM, Kerberoasting is detected via:
+1. Identity Analytics dataset for SPN enumeration
+2. Network events showing unusual Kerberos traffic
+3. Process events for LDAP query tools (adfind, PowerView, Rubeus)
+
+\`\`\`xql
+// Hunt for Kerberoasting — LDAP SPN enumeration via process args
+dataset = xdr_data
+| filter event_type = "PROCESS"
+| filter actor_process_command_line ~= "(?i)(servicePrincipalName|GetUserSPNs|kerberoast|Invoke-Kerberoast)"
+| filter actor_process_command_line not ~= "(?i)(krbtgt)"
+| fields event_timestamp, host_name, user_name,
+         actor_process_image_name, actor_process_command_line
+| sort desc event_timestamp
+| limit 200
+\`\`\`
+
+\`\`\`xql
+// Kerberoasting via identity analytics — unusual SPN requests
+dataset = identity_analytics
+| filter event_sub_type = "KERBEROS_TGS_REQUEST"
+| filter tgt_service not contains "krbtgt"
+| filter tgt_service not contains "$"
+| comp count() as request_count, values(tgt_service) as services
+    by source_ip, user_name
+| filter request_count > 5
+| sort desc request_count
+\`\`\`
+
+### XQL COMMON MISTAKES TO AVOID
+
+| WRONG | CORRECT | Reason |
+|-------|---------|--------|
+| \`| filter action_remote_ip in ("10.0.0.0/8")\` | \`| filter action_remote_ip not contains "10."\` | XQL does NOT support CIDR — use string matching |
+| \`| filter timestamp >= "2024-01-01"\` | \`| filter event_timestamp >= to_epoch("2024-01-01","yyyy-MM-dd")\` | Must use to_epoch() for date strings |
+| \`| filter field like "%pattern%"\` | \`| filter field contains "pattern"\` | Use contains not LIKE |
+| \`| filter field = /regex/\` | \`| filter field ~= "regex"\` | XQL regex uses ~= not /pattern/ |
+| \`| group by field\` | \`| comp count() as c by field\` | Use comp not group by |
+| \`| order by field desc\` | \`| sort desc field\` | Use sort not order by |
+| \`| select field1, field2\` | \`| fields field1, field2\` | Use fields not select |
+
+
 ## THREAT HUNTING EXAMPLES
 
 ### 1. Detect PowerShell with encoded commands
