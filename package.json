@@ -1,5 +1,5 @@
 {
-  "name": "xql-bot",
+  "name": "axiom",
   "version": "0.1.0",
   "private": true,
   "scripts": {
@@ -19,5 +19,6 @@
     "@types/react": "^18",
     "@types/react-dom": "^18",
     "typescript": "^5"
-  }
+  },
+  "description": "Cross-platform natural language threat hunt assistant \u2014 XQL, KQL, SPL, CQL"
 }
