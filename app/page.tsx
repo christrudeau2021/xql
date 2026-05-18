@@ -2,6 +2,9 @@
 
 import { useState, useRef, useEffect, useCallback } from "react";
 import { STARTER_PROMPTS, HUNT_IDEAS, HuntIdea } from "./corpus";
+import { PLATFORMS, getPlatform, Platform } from "./platformTypes";
+import { HUNT_HYPOTHESES, TACTICS, HuntHypothesis } from "./huntHypotheses";
+import { PLATFORM_DISCOVERY_QUERIES } from "./platformCorpus";
 import { parseTenantSchema, schemaToPromptContext, TenantSchema, DISCOVERY_QUERIES as DQ } from "./schemaParser";
 
 // ─── TYPES ───────────────────────────────────────────────────────────────────
@@ -33,8 +36,9 @@ interface Message {
   streaming?: boolean;
   validation?: ValidationResult | null;
   attack?: AttackRef | null;
-  xqlQuery?: string | null;     // extracted XQL for hunt plan generation
-  userQuery?: string | null;    // original user question
+  xqlQuery?: string | null;
+  userQuery?: string | null;
+  platform?: Platform;
 }
 
 // ─── VALIDATION BADGE ────────────────────────────────────────────────────────
@@ -117,6 +121,132 @@ function AttackBadge({ a }: { a: AttackRef }) {
   );
 }
 
+
+
+// ─── PLATFORM SELECTOR ───────────────────────────────────────────────────────
+
+function PlatformSelector({ current, onChange }: { current: Platform; onChange: (p: Platform) => void }) {
+  const cfg = getPlatform(current);
+  return (
+    <div style={{ display: "flex", gap: "4px", alignItems: "center" }}>
+      {PLATFORMS.map(p => (
+        <button
+          key={p.id}
+          onClick={() => onChange(p.id)}
+          title={p.fullName + " — " + p.vendor}
+          style={{
+            fontFamily: "var(--font-mono)",
+            fontSize: "10px",
+            letterSpacing: "0.1em",
+            fontWeight: "bold",
+            padding: "4px 10px",
+            background: current === p.id ? p.bgColor : "none",
+            border: `1px solid ${current === p.id ? p.borderColor : "var(--border-dim)"}`,
+            color: current === p.id ? p.color : "var(--text-dim)",
+            cursor: "pointer",
+            borderRadius: "3px",
+            transition: "all 0.15s",
+            boxShadow: current === p.id ? `0 0 8px ${p.bgColor}` : "none",
+          }}
+        >
+          {p.label}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+// ─── HYPOTHESIS SIDEBAR ───────────────────────────────────────────────────────
+
+function HypothesisSidebar({
+  platform,
+  activeTactic,
+  setActiveTactic,
+  onSelect,
+  disabled,
+}: {
+  platform: Platform;
+  activeTactic: string;
+  setActiveTactic: (t: string) => void;
+  onSelect: (h: HuntHypothesis) => void;
+  disabled: boolean;
+}) {
+  const tactics = ["ALL", ...TACTICS];
+  const filtered = activeTactic === "ALL"
+    ? HUNT_HYPOTHESES
+    : HUNT_HYPOTHESES.filter(h => h.tactic === activeTactic);
+
+  const priorityColor = { CRITICAL: "#ff2d55", HIGH: "#ffd60a", MEDIUM: "#00c8ff" };
+  const cfg = getPlatform(platform);
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", flex: 1, overflow: "hidden" }}>
+      {/* Tactic filter */}
+      <div style={{ padding: "8px 10px", borderBottom: "1px solid var(--border-dim)", display: "flex", flexWrap: "wrap", gap: "3px" }}>
+        {tactics.map(t => (
+          <button
+            key={t}
+            onClick={() => setActiveTactic(t)}
+            style={{
+              fontFamily: "var(--font-mono)",
+              fontSize: "8px",
+              letterSpacing: "0.08em",
+              textTransform: "uppercase",
+              padding: "2px 6px",
+              background: activeTactic === t ? "rgba(0,200,255,0.1)" : "none",
+              border: `1px solid ${activeTactic === t ? "var(--accent-cyan)" : "var(--border-dim)"}`,
+              color: activeTactic === t ? "var(--accent-cyan)" : "var(--text-dim)",
+              cursor: "pointer",
+              borderRadius: "2px",
+            }}
+          >
+            {t === "ALL" ? "ALL" : t.replace(" and Control", "").replace("Command ", "C2").slice(0, 12)}
+          </button>
+        ))}
+      </div>
+
+      {/* Hypothesis list */}
+      <div style={{ flex: 1, overflowY: "auto", padding: "6px" }}>
+        {filtered.map(h => (
+          <button
+            key={h.id}
+            disabled={disabled}
+            onClick={() => onSelect(h)}
+            style={{
+              width: "100%",
+              background: "none",
+              border: "1px solid var(--border-dim)",
+              borderLeft: `3px solid ${priorityColor[h.priority]}`,
+              padding: "7px 8px",
+              marginBottom: "4px",
+              textAlign: "left",
+              cursor: "pointer",
+              borderRadius: "2px",
+              transition: "all 0.15s",
+            }}
+            onMouseEnter={e => (e.currentTarget.style.borderColor = cfg.color)}
+            onMouseLeave={e => (e.currentTarget.style.borderColor = "var(--border-dim)")}
+          >
+            <div style={{ display: "flex", alignItems: "center", gap: "5px", marginBottom: "2px" }}>
+              <span style={{ fontFamily: "var(--font-mono)", fontSize: "8px", color: priorityColor[h.priority], letterSpacing: "0.08em" }}>
+                {h.priority}
+              </span>
+              <span style={{ fontFamily: "var(--font-mono)", fontSize: "8px", color: "var(--text-dim)" }}>
+                {h.techniqueId}
+              </span>
+            </div>
+            <div style={{ fontFamily: "var(--font-mono)", fontSize: "10px", color: "var(--text-secondary)", lineHeight: 1.4 }}>
+              {h.title}
+            </div>
+            <div style={{ fontFamily: "var(--font-mono)", fontSize: "8px", color: "var(--text-dim)", marginTop: "2px" }}>
+              {h.tactic}
+            </div>
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
 
 // ─── HUNT PLAN MODAL ─────────────────────────────────────────────────────────
 
@@ -228,10 +358,11 @@ interface HuntPlanModalProps {
   xqlQuery: string;
   attackRef?: AttackRef | null;
   tenantSchemaContext?: string;
+  platform?: Platform;
   onClose: () => void;
 }
 
-function HuntPlanModal({ userQuery, xqlQuery, attackRef, tenantSchemaContext, onClose }: HuntPlanModalProps) {
+function HuntPlanModal({ userQuery, xqlQuery, attackRef, tenantSchemaContext, platform = "xql", onClose }: HuntPlanModalProps) {
   const [planText, setPlanText] = useState('');
   const [streaming, setStreaming] = useState(true);
   const [copied, setCopied] = useState(false);
@@ -255,7 +386,7 @@ function HuntPlanModal({ userQuery, xqlQuery, attackRef, tenantSchemaContext, on
         const res = await fetch('/api/hunt-plan', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ userQuery, xqlQuery, attackRef, tenantSchemaContext }),
+          body: JSON.stringify({ userQuery, xqlQuery, attackRef, tenantSchemaContext, platform }),
         });
         if (!res.body) return;
         const reader = res.body.getReader();
@@ -347,7 +478,7 @@ function HuntPlanModal({ userQuery, xqlQuery, attackRef, tenantSchemaContext, on
 
 // ─── SCHEMA IMPORT MODAL ─────────────────────────────────────────────────────
 
-function SchemaModal({ onClose, onImport }: { onClose: () => void; onImport: (schema: TenantSchema) => void }) {
+function SchemaModal({ onClose, onImport, platform = "xql" }: { onClose: () => void; onImport: (schema: TenantSchema) => void; platform?: Platform }) {
   const [tab, setTab] = useState<"guide" | "paste" | "queries">("guide");
   const [pasteValue, setPasteValue] = useState("");
   const [parseResult, setParseResult] = useState<TenantSchema | null>(null);
@@ -466,21 +597,17 @@ function SchemaModal({ onClose, onImport }: { onClose: () => void; onImport: (sc
           {tab === "queries" && (
             <div style={{ display: "flex", flexDirection: "column", gap: "18px" }}>
               <p style={{ fontFamily: "var(--font-mono)", fontSize: "10px", color: "var(--text-dim)", letterSpacing: "0.08em" }}>
-                // RUN THESE IN YOUR XSIAM XQL CONSOLE → EXPORT AS JSON OR CSV → PASTE IN IMPORT TAB
+                // RUN IN YOUR {platform.toUpperCase()} CONSOLE → EXPORT JSON OR CSV → PASTE IN IMPORT TAB
               </p>
-              {[
-                { key: "datasets", label: "All Datasets (start here)", desc: "Lists every dataset in your tenant with retention and storage tier. Fastest — no field detail.", query: DQ.datasets },
-                { key: "allFields", label: "All Datasets + Fields (recommended)", desc: "Full field inventory across all datasets. May be large on complex tenants — export as JSON.", query: DQ.allFields },
-                { key: "fields", label: "Single Dataset Fields", desc: "Deep dive on one dataset. Replace DATASET_NAME before running.", query: DQ.fields },
-              ].map(({ key, label, desc, query }) => (
-                <div key={key} style={{ background: "var(--bg-surface)", border: "1px solid var(--border-dim)", borderRadius: "3px", overflow: "hidden" }}>
+              {(PLATFORM_DISCOVERY_QUERIES[platform] || PLATFORM_DISCOVERY_QUERIES["xql"]).map(({ label, description, query }, idx) => (
+                <div key={idx} style={{ background: "var(--bg-surface)", border: "1px solid var(--border-dim)", borderRadius: "3px", overflow: "hidden" }}>
                   <div style={{ padding: "8px 12px", display: "flex", alignItems: "center", justifyContent: "space-between", borderBottom: "1px solid var(--border-dim)" }}>
                     <div>
                       <div style={{ fontFamily: "var(--font-mono)", fontSize: "11px", color: "var(--accent-cyan)", letterSpacing: "0.08em" }}>{label}</div>
-                      <div style={{ fontSize: "11px", color: "var(--text-dim)", marginTop: "2px" }}>{desc}</div>
+                      <div style={{ fontSize: "11px", color: "var(--text-dim)", marginTop: "2px" }}>{description}</div>
                     </div>
-                    <button onClick={() => copyQuery(key, query)} style={{ background: "none", border: "1px solid var(--border-dim)", color: copiedKey === key ? "#00ff9d" : "var(--text-dim)", fontFamily: "var(--font-mono)", fontSize: "9px", padding: "3px 10px", cursor: "pointer", letterSpacing: "0.1em", flexShrink: 0 }}>
-                      {copiedKey === key ? "✓ COPIED" : "> COPY"}
+                    <button onClick={() => copyQuery(String(idx), query)} style={{ background: "none", border: "1px solid var(--border-dim)", color: copiedKey === String(idx) ? "#00ff9d" : "var(--text-dim)", fontFamily: "var(--font-mono)", fontSize: "9px", padding: "3px 10px", cursor: "pointer", letterSpacing: "0.1em", flexShrink: 0 }}>
+                      {copiedKey === String(idx) ? "✓ COPIED" : "> COPY"}
                     </button>
                   </div>
                   <pre style={{ margin: 0, padding: "10px 14px", fontFamily: "var(--font-mono)", fontSize: "11px", color: "var(--text-code)", lineHeight: 1.6, overflowX: "auto" }}>{query}</pre>
@@ -618,10 +745,13 @@ export default function Home() {
   const [tenantSchema, setTenantSchema] = useState<TenantSchema | null>(null);
   const [pendingAttack, setPendingAttack] = useState<AttackRef | null>(null);
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [platform, setPlatform] = useState<Platform>("xql");
+  const [activeTactic, setActiveTactic] = useState<string>("ALL");
   const [huntPlanTarget, setHuntPlanTarget] = useState<{
     userQuery: string;
     xqlQuery: string;
     attackRef?: AttackRef | null;
+    platform?: Platform;
   } | null>(null);
   const [showSchemaModal, setShowSchemaModal] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -648,7 +778,7 @@ export default function Home() {
     setShowSchemaModal(false);
   }, []);
 
-  const sendMessage = useCallback(async (text: string, attackRef?: AttackRef | null) => {
+  const sendMessage = useCallback(async (text: string, attackRef?: AttackRef | null, platformOverride?: Platform) => {
     if (!text.trim() || loading) return;
     const userMsg: Message = { role: "user", content: text.trim() };
     const newMessages = [...messages, userMsg];
@@ -662,6 +792,7 @@ export default function Home() {
 
     try {
       const tenantSchemaContext = tenantSchema ? schemaToPromptContext(tenantSchema) : undefined;
+      const activePlatform = platformOverride || platform;
 
       const res = await fetch("/api/chat", {
         method: "POST",
@@ -669,6 +800,7 @@ export default function Home() {
         body: JSON.stringify({
           messages: newMessages.map((m) => ({ role: m.role, content: m.content })),
           tenantSchemaContext,
+          platform: activePlatform,
         }),
       });
 
@@ -721,6 +853,7 @@ export default function Home() {
           attack: attackRef || null,
           xqlQuery: extractedXql,
           userQuery: text,
+          platform: activePlatform,
         };
         return updated;
       });
@@ -751,13 +884,14 @@ export default function Home() {
     <>
       <div className="corner-tl" /><div className="corner-tr" /><div className="corner-bl" /><div className="corner-br" />
 
-      {showSchemaModal && <SchemaModal onClose={() => setShowSchemaModal(false)} onImport={handleSchemaImport} />}
+      {showSchemaModal && <SchemaModal onClose={() => setShowSchemaModal(false)} onImport={handleSchemaImport} platform={platform} />}
       {huntPlanTarget && (
         <HuntPlanModal
           userQuery={huntPlanTarget.userQuery}
           xqlQuery={huntPlanTarget.xqlQuery}
           attackRef={huntPlanTarget.attackRef}
           tenantSchemaContext={tenantSchema ? schemaToPromptContext(tenantSchema) : undefined}
+          platform={huntPlanTarget.platform || platform}
           onClose={() => setHuntPlanTarget(null)}
         />
       )}
@@ -788,6 +922,7 @@ export default function Home() {
           </div>
           </div>
           <div className="header-status">
+            <PlatformSelector current={platform} onChange={p => { setPlatform(p); }} />
             {/* Tenant schema indicator */}
             {tenantSchema ? (
               <button onClick={() => setTenantSchema(null)} title="Click to clear tenant schema" style={{ display: "flex", alignItems: "center", gap: "6px", background: "rgba(0,255,157,0.06)", border: "1px solid rgba(0,255,157,0.3)", color: "#00ff9d", fontFamily: "var(--font-mono)", fontSize: "9px", padding: "3px 10px", cursor: "pointer", letterSpacing: "0.1em" }}>
@@ -816,17 +951,17 @@ export default function Home() {
           <aside className={`sidebar${sidebarOpen ? " mobile-open" : ""}`}>
             {/* Mobile close button */}
             <div className="sidebar-close">
-              <span style={{ fontFamily: "var(--font-mono)", fontSize: "10px", color: "var(--text-dim)", letterSpacing: "0.15em" }}>// HUNT IDEAS</span>
+              <span style={{ fontFamily: "var(--font-mono)", fontSize: "10px", color: "var(--text-dim)", letterSpacing: "0.15em" }}>// THREAT HUNTS</span>
               <button className="sidebar-close-btn" onClick={() => setSidebarOpen(false)}>✕</button>
             </div>
-            {/* Marquee — hunt ideas */}
-            <div className="sidebar-section">
-              <div className="sidebar-label">Hunt Ideas</div>
-            </div>
+
+            {/* Hunt Ideas Marquee — always visible */}
             <div className="hunt-marquee-wrap">
               <div className="hunt-marquee-track">
                 {[...HUNT_IDEAS, ...HUNT_IDEAS].map((idea, i) => (
-                  <div key={i} className="hunt-idea-row" onClick={() => { sendMessage(idea.text, { techniqueId: idea.techniqueId, techniqueName: idea.techniqueName, tactic: idea.tactic, url: idea.url }); setSidebarOpen(false); }} title={"Hunt: " + idea.techniqueId + " · " + idea.techniqueName}>
+                  <div key={i} className="hunt-idea-row"
+                    onClick={() => { sendMessage(idea.text, { techniqueId: idea.techniqueId, techniqueName: idea.techniqueName, tactic: idea.tactic, url: idea.url }); setSidebarOpen(false); }}
+                    title={"Hunt: " + idea.techniqueId + " · " + idea.techniqueName}>
                     <span className="hunt-idea-bullet">&#9658;</span>
                     <span className="hunt-idea-text">{idea.text}</span>
                     <span className="hunt-idea-technique">{idea.techniqueId}</span>
@@ -835,15 +970,22 @@ export default function Home() {
               </div>
             </div>
 
-            {/* Clickable starter chips */}
+            {/* 40 Hypothesis library */}
             <div className="sidebar-section">
-              <div className="sidebar-label">Quick Start</div>
+              <div className="sidebar-label">Hunt Hypotheses ({HUNT_HYPOTHESES.length})</div>
             </div>
-            <div className="starter-prompts">
-              {STARTER_PROMPTS.map((prompt, i) => (
-                <button key={i} className="prompt-chip" onClick={() => { sendMessage(prompt); setSidebarOpen(false); }} disabled={loading}>{prompt}</button>
-              ))}
-            </div>
+            <HypothesisSidebar
+              platform={platform}
+              activeTactic={activeTactic}
+              setActiveTactic={setActiveTactic}
+              onSelect={(h) => {
+                const query = h.queryHints[platform];
+                const attackRef = { techniqueId: h.techniqueId, techniqueName: h.techniqueName, tactic: h.tactic, url: h.attackUrl };
+                sendMessage(query, attackRef);
+                setSidebarOpen(false);
+              }}
+              disabled={loading}
+            />
           </aside>
 
           <div className="chat-area">
@@ -857,13 +999,13 @@ export default function Home() {
                     <circle cx="32" cy="32" r="4" fill="#00c8ff" opacity="0.6"/>
                   </svg>
                   <h1>XQL <span>Shield</span></h1>
-                  <p>Translate natural language threat hunting queries into production-ready XQL for Cortex XDR and XSIAM. Every query is auto-validated. Import your tenant schema for environment-aware generation.</p>
+                  <p>Translate natural language threat hunting into production-ready queries for Cortex XDR (XQL), Microsoft Sentinel (KQL), Splunk (SPL), and CrowdStrike Falcon (CQL). Select your platform, choose from 40 structured hunt hypotheses, and get auto-validated, ATT&CK-mapped queries with full hunt plans.</p>
                   <div className="welcome-tags">
-                    <span className="tag">Cortex XDR 5.x</span>
-                    <span className="tag">XSIAM</span>
+                    <span className="tag">XQL · KQL · SPL · CQL</span>
                     <span className="tag">MITRE ATT&amp;CK</span>
                     <span className="tag">Auto-Validated</span>
-                    <span className="tag">Tenant-Aware</span>
+                    <span className="tag">40 Hunt Hypotheses</span>
+                    <span className="tag">PEAK Methodology</span>
                   </div>
                   {!tenantSchema && (
                     <button onClick={() => setShowSchemaModal(true)} style={{ marginTop: "12px", background: "none", border: "1px solid var(--border-glow)", color: "var(--text-secondary)", fontFamily: "var(--font-mono)", fontSize: "10px", padding: "6px 16px", cursor: "pointer", letterSpacing: "0.12em" }}>
@@ -887,6 +1029,7 @@ export default function Home() {
                                 userQuery: msg.userQuery || "",
                                 xqlQuery: msg.xqlQuery || "",
                                 attackRef: msg.attack,
+                                platform: msg.platform,
                               })}
                             >
                               ⟴ BUILD HUNT PLAN
