@@ -21,6 +21,22 @@ dataset = <dataset_name>
 
 ---
 
+## CONFIG BLOCK (alternative to filter-based time range)
+
+\`\`\`xql
+// config block sets global timeframe for the query
+// Use instead of | filter event_timestamp >= subtract_time(...)
+config timeframe = 24h
+| dataset = xdr_data
+| filter event_type = "PROCESS"
+| filter actor_process_image_name = "powershell.exe"
+\`\`\`
+
+Time units for config: m (minutes), h (hours), d (days), w (weeks)
+Note: config block must appear BEFORE dataset declaration
+
+---
+
 ## CORE DATASETS (most commonly used)
 
 ### Endpoint / Process Activity
