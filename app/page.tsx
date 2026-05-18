@@ -974,49 +974,59 @@ export default function Home() {
 
         {/* Header */}
         <header className="header">
-          <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
-            <button className="sidebar-toggle" onClick={() => setSidebarOpen(true)} aria-label="Open menu">
-              ☰
-            </button>
-          <div className="header-logo">
-            <div className="logo-icon">
-              <svg viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg">
-                <polygon points="16,2 28,8 28,24 16,30 4,24 4,8" stroke="#00c8ff" strokeWidth="1.5" fill="rgba(0,200,255,0.05)"/>
-                <polygon points="16,7 23,11 23,21 16,25 9,21 9,11" stroke="#00c8ff" strokeWidth="0.75" fill="rgba(0,200,255,0.03)" opacity="0.6"/>
-                <path d="M12 14 L16 12 L20 14 L20 18 L16 20 L12 18 Z" fill="rgba(0,200,255,0.2)" stroke="#00c8ff" strokeWidth="0.5"/>
-                <circle cx="16" cy="16" r="2" fill="#00c8ff" opacity="0.8"/>
-              </svg>
+          {/* ── Row 1: Logo + hamburger + schema/status ── */}
+          <div className="header-row-1">
+            <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
+              <button className="sidebar-toggle" onClick={() => setSidebarOpen(true)} aria-label="Open menu">
+                ☰
+              </button>
+              <div className="header-logo">
+                <div className="logo-icon">
+                  <svg viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg">
+                    <polygon points="16,2 28,8 28,24 16,30 4,24 4,8" stroke="#00c8ff" strokeWidth="1.5" fill="rgba(0,200,255,0.05)"/>
+                    <polygon points="16,7 23,11 23,21 16,25 9,21 9,11" stroke="#00c8ff" strokeWidth="0.75" fill="rgba(0,200,255,0.03)" opacity="0.6"/>
+                    <path d="M12 14 L16 12 L20 14 L20 18 L16 20 L12 18 Z" fill="rgba(0,200,255,0.2)" stroke="#00c8ff" strokeWidth="0.5"/>
+                    <circle cx="16" cy="16" r="2" fill="#00c8ff" opacity="0.8"/>
+                  </svg>
+                </div>
+                <div>
+                  <div className="logo-text">AXI<span>OM</span></div>
+                  <div className="logo-sub">XQL · KQL · SPL · CQL · Threat Hunt Assistant</div>
+                </div>
+              </div>
             </div>
-            <div>
-              <div className="logo-text">AXI<span>OM</span></div>
-              <div className="logo-sub">XQL · KQL · SPL · CQL · Threat Hunt Assistant</div>
+            <div className="header-status">
+              {/* Platform selector — visible on desktop in status row, hidden on mobile (moves to row-2) */}
+              <div className="platform-selector-desktop">
+                <PlatformSelector current={platform} onChange={p => { setPlatform(p); setWorkflowStep(1); }} />
+              </div>
+              {tenantSchema ? (
+                <button onClick={() => setTenantSchema(null)} title="Click to clear tenant schema" style={{ display: "flex", alignItems: "center", gap: "6px", background: "rgba(0,255,157,0.06)", border: "1px solid rgba(0,255,157,0.3)", color: "#00ff9d", fontFamily: "var(--font-mono)", fontSize: "9px", padding: "3px 10px", cursor: "pointer", letterSpacing: "0.1em" }}>
+                  ◈ SCHEMA · {tenantSchema.datasetCount}ds &nbsp;✕
+                </button>
+              ) : (
+                <button onClick={() => setShowSchemaModal(true)} style={{ display: "flex", alignItems: "center", gap: "6px", background: "none", border: "1px solid var(--border-dim)", color: "var(--text-dim)", fontFamily: "var(--font-mono)", fontSize: "9px", padding: "3px 10px", cursor: "pointer", letterSpacing: "0.1em" }}
+                  onMouseEnter={e => { (e.target as HTMLButtonElement).style.borderColor = "var(--accent-cyan)"; (e.target as HTMLButtonElement).style.color = "var(--accent-cyan)"; }}
+                  onMouseLeave={e => { (e.target as HTMLButtonElement).style.borderColor = "var(--border-dim)"; (e.target as HTMLButtonElement).style.color = "var(--text-dim)"; }}>
+                  + SCHEMA
+                </button>
+              )}
+              {validating ? (
+                <div className="status-badge" style={{ color: "var(--accent-yellow)" }}>
+                  <div className="status-dot" style={{ background: "var(--accent-yellow)", boxShadow: "0 0 8px var(--accent-yellow)" }} />VALIDATING
+                </div>
+              ) : (
+                <div className="status-badge"><div className="status-dot" />ONLINE</div>
+              )}
+              <div className="model-badge">SONNET 4</div>
             </div>
           </div>
-          </div>
-          <div className="header-status">
+
+          {/* ── Row 2: Platform selector — full width, prominent on mobile ── */}
+          <div className="header-row-2">
             <div className="platform-selector-wrap">
               <PlatformSelector current={platform} onChange={p => { setPlatform(p); setWorkflowStep(1); }} />
             </div>
-            {/* Tenant schema indicator */}
-            {tenantSchema ? (
-              <button onClick={() => setTenantSchema(null)} title="Click to clear tenant schema" style={{ display: "flex", alignItems: "center", gap: "6px", background: "rgba(0,255,157,0.06)", border: "1px solid rgba(0,255,157,0.3)", color: "#00ff9d", fontFamily: "var(--font-mono)", fontSize: "9px", padding: "3px 10px", cursor: "pointer", letterSpacing: "0.1em" }}>
-                ◈ SCHEMA · {tenantSchema.datasetCount}ds · {tenantSchema.fieldCount}f &nbsp;✕
-              </button>
-            ) : (
-              <button onClick={() => setShowSchemaModal(true)} style={{ display: "flex", alignItems: "center", gap: "6px", background: "none", border: "1px solid var(--border-dim)", color: "var(--text-dim)", fontFamily: "var(--font-mono)", fontSize: "9px", padding: "3px 10px", cursor: "pointer", letterSpacing: "0.1em", transition: "all 0.2s" }}
-                onMouseEnter={e => { (e.target as HTMLButtonElement).style.borderColor = "var(--accent-cyan)"; (e.target as HTMLButtonElement).style.color = "var(--accent-cyan)"; }}
-                onMouseLeave={e => { (e.target as HTMLButtonElement).style.borderColor = "var(--border-dim)"; (e.target as HTMLButtonElement).style.color = "var(--text-dim)"; }}>
-                + TENANT SCHEMA
-              </button>
-            )}
-            {validating ? (
-              <div className="status-badge" style={{ color: "var(--accent-yellow)" }}>
-                <div className="status-dot" style={{ background: "var(--accent-yellow)", boxShadow: "0 0 8px var(--accent-yellow)" }} />VALIDATING
-              </div>
-            ) : (
-              <div className="status-badge"><div className="status-dot" />ONLINE</div>
-            )}
-            <div className="model-badge">SONNET 4</div>
           </div>
         </header>
 
