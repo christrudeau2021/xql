@@ -117,6 +117,31 @@ body::after {
   opacity: 0.4;
 }
 
+
+/* Desktop: platform selector in header status row */
+.platform-selector-desktop {
+  display: flex;
+}
+
+/* Header rows — desktop: row-2 hidden, all in row-1 */
+.header-row-1 {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  height: 56px;
+  padding: 0 24px;
+  flex-shrink: 0;
+}
+
+.header-row-2 {
+  display: none; /* shown via mobile override */
+  padding: 8px 12px;
+  border-top: 1px solid var(--border-dim);
+  background: rgba(0, 0, 0, 0.25);
+}
+
+
 .header-logo {
   display: flex;
   align-items: center;
@@ -1215,7 +1240,11 @@ body::after {
 .platform-selector-wrap {
   display: flex;
   align-items: center;
-  gap: 3px;
+  gap: 4px;
+}
+
+.platform-selector-wrap button {
+  min-height: 30px;
 }
 
 /* ─── CHAT AREA PLATFORM INDICATOR ─── */
@@ -1342,19 +1371,34 @@ body::after {
     height: 100vh;  /* fallback */
   }
 
-  /* ── Header ── */
+  /* ── Header — two-row layout on mobile ── */
   .header {
+    height: auto;
+    padding: 0;
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .header-row-1 {
     height: 48px;
     padding: 0 12px;
   }
 
+  /* Show row 2 — platform selector row */
+  .header-row-2 {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 8px 12px;
+  }
+
   .logo-icon {
-    width: 26px;
-    height: 26px;
+    width: 24px;
+    height: 24px;
   }
 
   .logo-text {
-    font-size: 16px;
+    font-size: 15px;
     letter-spacing: 0.06em;
   }
 
@@ -1362,10 +1406,13 @@ body::after {
     display: none;
   }
 
+  /* Move header-status items into row structure */
   .header-status {
     gap: 6px;
+    flex-direction: row;
   }
 
+  /* Hide status/model badges — not needed on mobile */
   .status-badge {
     display: none;
   }
@@ -1374,9 +1421,44 @@ body::after {
     display: none;
   }
 
+  /* Hide desktop platform selector on mobile (moves to row-2) */
+  .platform-selector-desktop {
+    display: none;
+  }
+
+  /* Schema button smaller on mobile */
+  .header-status > button {
+    font-size: 8px !important;
+    padding: 3px 7px !important;
+  }
+
   /* Show sidebar toggle on mobile */
   .sidebar-toggle {
     display: flex;
+  }
+
+  /* Platform selector fills row 2 — all 4 chips visible and prominent */
+  .platform-selector-wrap {
+    display: flex;
+    gap: 6px;
+    width: 100%;
+    justify-content: center;
+  }
+
+  .platform-selector-wrap button {
+    flex: 1;
+    max-width: 80px;
+    padding: 7px 4px !important;
+    font-size: 12px !important;
+    font-weight: bold !important;
+    letter-spacing: 0.06em !important;
+    border-radius: 4px !important;
+    text-align: center;
+  }
+
+  /* Active platform button more prominent on mobile */
+  .platform-selector-wrap button[data-active="true"] {
+    box-shadow: 0 0 12px currentColor;
   }
 
   /* Show platform banner below header on mobile */
@@ -1384,15 +1466,14 @@ body::after {
     display: flex;
   }
 
-  /* Platform selector — make chips larger on mobile */
-  .platform-selector-wrap button {
-    padding: 5px 8px !important;
-    font-size: 11px !important;
-  }
-
   /* Chat platform indicator — always visible on mobile */
   .chat-platform-indicator {
     display: flex;
+  }
+
+  /* Step hint text — hide on very small screens, keep chip */
+  .chat-platform-indicator > span:last-child {
+    display: none;
   }
 
   /* ── Sidebar — slide-in drawer on mobile ── */
