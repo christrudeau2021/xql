@@ -2,9 +2,9 @@ import type { Metadata } from "next";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "XQL Shield — Cortex XDR Query Translator",
+  title: "AXIOM — Cross-Platform Threat Hunt Assistant",
   description:
-    "Translate natural language threat hunting into XQL queries for Palo Alto Networks Cortex XDR / XSIAM",
+    "Natural language threat hunting across XQL, KQL, SPL, and CQL — with PEAK methodology, ATT&CK mapping, and AI-powered query validation.",
 };
 
 export default function RootLayout({
