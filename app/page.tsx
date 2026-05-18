@@ -552,22 +552,53 @@ function SchemaModal({ onClose, onImport, platform = "xql" }: { onClose: () => v
         {/* Tab content */}
         <div style={{ flex: 1, overflowY: "auto", padding: "18px" }}>
 
-          {tab === "guide" && (
+          {tab === "guide" && (() => {
+            const guideContent: Record<string, { why: string; extra: string; console: string; exportNote: string }> = {
+              xql: {
+                why: "XSIAM tenants vary significantly from out-of-box defaults. Hot/warm/cold storage tiers create differently-named dataset variants. Custom ingestion pipelines produce org-specific datasets. Without knowing your actual schema, the validator flags legitimate custom datasets as unknown.",
+                extra: "Importing your schema lets AXIOM generate queries against your real datasets and validate field names specific to your environment.",
+                console: "XSIAM XQL Console (Cortex XDR → Investigation → Query Center)",
+                exportNote: "Export result as JSON or CSV from the XQL console results panel",
+              },
+              kql: {
+                why: "Microsoft Sentinel workspaces vary by deployment — custom connectors, partner solutions, and legacy Log Analytics tables all create non-standard table names. Defender XDR environments may have additional Advanced Hunting tables not in the standard schema.",
+                extra: "Importing your workspace schema ensures the validator recognizes your custom tables and the generator suggests the right table for each hunt.",
+                console: "Microsoft Sentinel → Logs (Log Analytics workspace) or Defender XDR → Advanced Hunting",
+                exportNote: "Click Export → CSV or copy results as JSON from the query results panel",
+              },
+              spl: {
+                why: "Splunk environments differ enormously — indexes, sourcetypes, and field aliases vary by deployment, data onboarding, and field extractions. The validator needs to know your actual indexes to avoid flagging legitimate SPL as incorrect.",
+                extra: "Importing your index and sourcetype inventory lets the generator reference your real data sources instead of guessing common defaults.",
+                console: "Splunk Web → Search & Reporting app → Search bar",
+                exportNote: "Click Export → Export Results → CSV or JSON from the search results toolbar",
+              },
+              cql: {
+                why: "CrowdStrike Falcon NG-SIEM environments have varying event coverage based on sensor version, OS platform, and Prevention Policy settings. Custom event pipelines and Fusion SOAR workflows may produce additional event types not in the standard schema.",
+                extra: "Importing your event type inventory tells the validator which #event_simpleName values are active in your environment and prevents false-positive validation warnings.",
+                console: "Falcon Console → Next-Gen SIEM → LogScale (or Investigate → Event Search)",
+                exportNote: "Click the download icon on the query results table — export as CSV or JSON",
+              },
+            };
+            const g = guideContent[platform] || guideContent.xql;
+            const cfg = getPlatform(platform);
+            return (
             <div style={{ display: "flex", flexDirection: "column", gap: "14px" }}>
+              {/* Platform badge */}
+              <div style={{ display: "inline-flex", alignItems: "center", gap: "8px", background: cfg.bgColor, border: `1px solid ${cfg.borderColor}`, padding: "5px 12px", borderRadius: "3px", alignSelf: "flex-start" }}>
+                <span style={{ fontFamily: "var(--font-mono)", fontSize: "10px", color: cfg.color, letterSpacing: "0.12em", fontWeight: "bold" }}>{cfg.label}</span>
+                <span style={{ fontFamily: "var(--font-mono)", fontSize: "9px", color: "var(--text-dim)" }}>{cfg.vendor}</span>
+              </div>
+
               <div style={{ fontFamily: "var(--font-mono)", fontSize: "10px", color: "var(--accent-cyan)", letterSpacing: "0.12em" }}>// WHY THIS EXISTS</div>
-              <p style={{ fontSize: "12px", color: "var(--text-secondary)", lineHeight: 1.7 }}>
-                XSIAM tenants vary significantly from out-of-box defaults. Hot/warm/cold storage tiers create differently-named dataset variants. Custom ingestion pipelines produce org-specific datasets. Without knowing your actual schema, the validator flags legitimate custom datasets as unknown.
-              </p>
-              <p style={{ fontSize: "12px", color: "var(--text-secondary)", lineHeight: 1.7 }}>
-                Importing your schema lets XQL Shield generate queries against your real datasets and validate field names specific to your environment.
-              </p>
+              <p style={{ fontSize: "12px", color: "var(--text-secondary)", lineHeight: 1.7 }}>{g.why}</p>
+              <p style={{ fontSize: "12px", color: "var(--text-secondary)", lineHeight: 1.7 }}>{g.extra}</p>
 
               <div style={{ fontFamily: "var(--font-mono)", fontSize: "10px", color: "var(--accent-cyan)", letterSpacing: "0.12em", marginTop: "4px" }}>// SECURITY MODEL</div>
               <div style={{ background: "rgba(0,255,157,0.04)", border: "1px solid rgba(0,255,157,0.2)", padding: "10px 14px", borderRadius: "3px" }}>
                 {[
                   "Schema is held in React memory only — never written to localStorage, sessionStorage, cookies, or any disk storage",
                   "Cleared automatically when you close or refresh the tab",
-                  "Only dataset names, field names, and field types are used — no log values, no credentials",
+                  "Only dataset/table names, field names, and types are used — no log values, no credentials",
                   "Import is sanitized: IPs, hashes, and tokens are redacted automatically",
                   "Schema is sent to the Anthropic API as part of your session prompt — treat it like any other query you run here"
                 ].map((point, i) => (
@@ -580,19 +611,20 @@ function SchemaModal({ onClose, onImport, platform = "xql" }: { onClose: () => v
 
               <div style={{ fontFamily: "var(--font-mono)", fontSize: "10px", color: "var(--accent-cyan)", letterSpacing: "0.12em" }}>// WORKFLOW</div>
               {[
-                "Go to the Discovery Queries tab and copy the query that fits your needs",
-                "Run it in your XSIAM XQL console",
-                "Export the result as JSON or CSV",
+                `Go to the Discovery Queries tab and copy the query that fits your needs`,
+                `Run it in your ${g.console}`,
+                g.exportNote,
                 "Come back here → Import Data tab → paste the export",
                 "Click Parse, review the summary, click Confirm Import"
               ].map((step, i) => (
                 <div key={i} style={{ display: "flex", gap: "10px", fontSize: "12px", color: "var(--text-secondary)" }}>
-                  <span style={{ color: "var(--accent-cyan)", fontFamily: "var(--font-mono)", fontSize: "10px", flexShrink: 0, marginTop: "2px" }}>{String(i+1).padStart(2,"0")}</span>
+                  <span style={{ color: cfg.color, fontFamily: "var(--font-mono)", fontSize: "10px", flexShrink: 0, marginTop: "2px" }}>{String(i+1).padStart(2,"0")}</span>
                   {step}
                 </div>
               ))}
             </div>
-          )}
+            );
+          })()}
 
           {tab === "queries" && (
             <div style={{ display: "flex", flexDirection: "column", gap: "18px" }}>
@@ -746,7 +778,10 @@ export default function Home() {
   const [pendingAttack, setPendingAttack] = useState<AttackRef | null>(null);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [platform, setPlatform] = useState<Platform>("xql");
+  const platformRef = useRef<Platform>("xql");
   const [activeTactic, setActiveTactic] = useState<string>("ALL");
+  // Keep ref in sync so sendMessage always reads the latest platform value
+  useEffect(() => { platformRef.current = platform; }, [platform]);
   const [huntPlanTarget, setHuntPlanTarget] = useState<{
     userQuery: string;
     xqlQuery: string;
@@ -792,7 +827,7 @@ export default function Home() {
 
     try {
       const tenantSchemaContext = tenantSchema ? schemaToPromptContext(tenantSchema) : undefined;
-      const activePlatform = platformOverride || platform;
+      const activePlatform = platformOverride || platformRef.current;
 
       const res = await fetch("/api/chat", {
         method: "POST",
@@ -842,7 +877,7 @@ export default function Home() {
       if (buffer) fullText += buffer;
       setMessages((prev) => {
         const updated = [...prev];
-        // Extract XQL for hunt plan button
+        // Extract query for hunt plan button
         const xqlMatch = fullText.match(/```(?:xql)?[\s\S]*?([\s\S]+?)```/);
         const extractedXql = xqlMatch ? xqlMatch[1].trim() : null;
         updated[updated.length - 1] = {
@@ -860,14 +895,14 @@ export default function Home() {
     } catch {
       setMessages((prev) => {
         const updated = [...prev];
-        updated[updated.length - 1] = { role: "assistant", content: "**ERROR** — Connection to XQL Shield failed. Check API key configuration.", streaming: false, validation: null };
+        updated[updated.length - 1] = { role: "assistant", content: "**ERROR** — Connection to AXIOM failed. Check API key configuration.", streaming: false, validation: null };
         return updated;
       });
     } finally {
       setLoading(false);
       setValidating(false);
     }
-  }, [messages, loading, tenantSchema]);
+  }, [messages, loading, tenantSchema, platform]);
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); sendMessage(input); }
@@ -916,8 +951,8 @@ export default function Home() {
               </svg>
             </div>
             <div>
-              <div className="logo-text">XQL<span>Shield</span></div>
-              <div className="logo-sub">Cortex XDR · XSIAM · Query Translator</div>
+              <div className="logo-text">AXI<span>OM</span></div>
+              <div className="logo-sub">XQL · KQL · SPL · CQL · Threat Hunt Assistant</div>
             </div>
           </div>
           </div>
@@ -998,8 +1033,8 @@ export default function Home() {
                     <path d="M24 28 L32 24 L40 28 L40 36 L32 40 L24 36 Z" fill="rgba(0,200,255,0.15)" stroke="#00c8ff" strokeWidth="1"/>
                     <circle cx="32" cy="32" r="4" fill="#00c8ff" opacity="0.6"/>
                   </svg>
-                  <h1>XQL <span>Shield</span></h1>
-                  <p>Translate natural language threat hunting into production-ready queries for Cortex XDR (XQL), Microsoft Sentinel (KQL), Splunk (SPL), and CrowdStrike Falcon (CQL). Select your platform, choose from 40 structured hunt hypotheses, and get auto-validated, ATT&CK-mapped queries with full hunt plans.</p>
+                  <h1>AXI<span>OM</span></h1>
+                  <p>Natural language threat hunting across every major platform — XQL, KQL, SPL, and CQL. Select your platform, choose from 40 ATT&CK-mapped hunt hypotheses, and generate validated queries with full PEAK-methodology hunt plans.</p>
                   <div className="welcome-tags">
                     <span className="tag">XQL · KQL · SPL · CQL</span>
                     <span className="tag">MITRE ATT&amp;CK</span>
@@ -1016,7 +1051,7 @@ export default function Home() {
               ) : (
                 messages.map((msg, i) => (
                   <div key={i} className={`message message-${msg.role}`}>
-                    <div className="message-role">{msg.role === "user" ? "// OPERATOR" : "// XQL SHIELD"}</div>
+                    <div className="message-role">{msg.role === "user" ? "// OPERATOR" : "// AXIOM"}</div>
                     <div className="message-bubble">
                       {msg.role === "assistant" ? (
                         <>
