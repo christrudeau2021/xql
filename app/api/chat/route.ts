@@ -1,145 +1,154 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { XQL_CORPUS } from "../../corpus";
+import { KQL_CORPUS, SPL_CORPUS, CQL_CORPUS, PLATFORM_KNOWN_DATASETS } from "../../platformCorpus";
+import { Platform } from "../../platformTypes";
 
 const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 
-// ─── STAGE 1: GENERATOR ─────────────────────────────────────────────────────
+// ─── PER-PLATFORM CORPUS ─────────────────────────────────────────────────────
 
-const SYSTEM_PROMPT = `You are XQL Shield — an expert threat hunting assistant for security operators and incident responders using Palo Alto Networks Cortex XDR and XSIAM.
+const PLATFORM_CORPUS: Record<Platform, string> = {
+  xql: XQL_CORPUS,
+  kql: KQL_CORPUS,
+  spl: SPL_CORPUS,
+  cql: CQL_CORPUS,
+};
 
-Your primary function is translating natural language security questions into precise, optimized XQL (Extended Query Language) queries.
+const PLATFORM_NAMES: Record<Platform, string> = {
+  xql: "Palo Alto Networks Cortex XDR/XSIAM — XQL",
+  kql: "Microsoft Sentinel / Defender XDR — KQL (Kusto Query Language)",
+  spl: "Splunk Enterprise/Cloud — SPL (Search Processing Language)",
+  cql: "CrowdStrike Falcon NG-SIEM — LogScale Query Language (CQL)",
+};
 
-${XQL_CORPUS}
+// ─── SYSTEM PROMPT BUILDER ────────────────────────────────────────────────────
+
+function buildSystemPrompt(platform: Platform, tenantBlock: string): string {
+  const platformName = PLATFORM_NAMES[platform];
+  const corpus = PLATFORM_CORPUS[platform];
+
+  return `You are XQL Shield — an expert threat hunting assistant for security operators and incident responders.
+
+The operator has selected: **${platformName}**
+
+You MUST generate all queries in the correct syntax for this platform. Do not output queries in any other language.
+
+${corpus}
 
 ## YOUR RESPONSE FORMAT
 
 Always respond with:
 
 1. **Brief tactical assessment** (1-2 sentences): What threat or behavior this query hunts for
-2. **XQL Query** in a code block labeled \`\`\`xql
+2. **Query** in a code block labeled with the platform language (xql/kql/spl/cql)
 3. **Key fields to review** — what to look for in the results
-4. **Tuning tips** — how to adjust the query for environment-specific needs (optional, keep brief)
+4. **Tuning tips** — how to adjust for environment-specific needs (optional, brief)
 
 ## RESPONSE STYLE
 - You are talking to security operators and threat hunters — use SOC/IR terminology
 - Be direct and tactical, not verbose
 - If a request is ambiguous, make a reasonable security assumption and state it
-- Always add inline comments (//) to explain non-obvious query logic
-- If multiple datasets could work, pick the best one and optionally mention the alternative
-- If a tenant schema is loaded, prefer tenant datasets over generic ones when they match the use case
-- For complex hunts, break into a primary query + a follow-on enrichment query
+- Always add inline comments explaining non-obvious query logic
+- If multiple approaches work, pick the best one and mention the alternative
+- For complex hunts, provide a primary query + follow-on enrichment query
 
-## CONVERSATIONAL BEHAVIOR
-- Answer follow-up questions about the query you just generated
-- Help tune or modify queries based on feedback ("narrow it to just Windows", "add a time filter", etc.)
-- Explain XQL syntax concepts when asked
-- Suggest related threat hunts after answering`;
+## PLATFORM NOTES
+${platform === "xql" ? "- Use pipe-based XQL syntax with dataset = at the start\n- Use filter, fields, comp, alter, sort, limit stages" : ""}
+${platform === "kql" ? "- Use KQL pipe syntax starting with table name\n- Use where, project, extend, summarize, order by, take\n- Prefer DeviceProcessEvents, DeviceNetworkEvents for endpoint hunting" : ""}
+${platform === "spl" ? "- Start with index= and sourcetype= where known\n- Use | stats for aggregation, | table for field selection\n- Include relevant EventCode filters for Windows events" : ""}
+${platform === "cql" ? "- Start with #event_simpleName= filter\n- Use | groupBy() for aggregation, | limit() for results\n- Use field=value syntax before pipes for initial filtering" : ""}
+${tenantBlock}`;
+}
 
-// ─── STAGE 2: VALIDATOR ─────────────────────────────────────────────────────
+// ─── VALIDATOR PROMPT BUILDER ─────────────────────────────────────────────────
 
-const VALIDATOR_PROMPT = `You are a senior XQL syntax and logic validator for Palo Alto Networks Cortex XDR / XSIAM.
+function buildValidatorPrompt(platform: Platform, tenantBlock: string): string {
+  const knownDatasets = PLATFORM_KNOWN_DATASETS[platform].join(", ");
+  const platformName = PLATFORM_NAMES[platform];
 
-You will be given:
-1. A user's natural language threat hunting request
-2. An XQL query generated in response to that request
+  return `You are a senior query validator for ${platformName}.
 
-Your job is to validate the query and return ONLY a JSON object — no preamble, no markdown, no explanation outside the JSON.
+Validate the provided query and return ONLY a JSON object — no preamble, no markdown.
 
 ## VALIDATION CRITERIA
 
 **Syntax checks:**
-- Dataset declaration is valid (dataset = <name>)
-- Pipe stages are in correct order (filter before comp, etc.)
-- All parentheses, brackets, and quotes are balanced
-- Operators used correctly (=, !=, in, contains, ~=, is null, etc.)
-- String values are quoted, numeric values are not
-- Functions called with correct argument patterns
+- Query uses correct syntax for ${platform.toUpperCase()}
+- Operators, functions, and keywords are valid for this platform
+- Strings properly quoted, numeric values unquoted
+- Pipeline structure is valid
 
 **Semantic checks:**
-- Field names are plausible for the chosen dataset (flag if likely wrong)
-- The query logically answers the user's question
+- Field names are plausible for the chosen dataset/table
+- Query logically answers the user's question
 - No contradictory filters
-- Aggregation fields referenced in comp exist in prior pipeline stages
-- Time filter syntax is correct if present
+- Time filter syntax is correct
 
 **Security logic checks:**
-- The query targets the right dataset for the threat described
-- Exclusions/inclusions make tactical sense
-- Would likely produce actionable results vs. too broad or too narrow
+- Query targets the right dataset/table for the threat described
+- Would likely produce actionable results
 
-## KNOWN VALID DATASETS (standard corpus)
-xdr_data, process_events, network_connections, file_events, registry_events, module_events,
-auth_events, identity_analytics, directory_sync, firewall_events, network_story, dns_events,
-url_events, cloud_audit_logs, cloud_asset_db, xdr_alerts, incidents
+## KNOWN VALID DATASETS/TABLES FOR ${platform.toUpperCase()}:
+${knownDatasets}
 
-## RESPONSE FORMAT — Return ONLY this JSON, nothing else:
+${tenantBlock ? `## TENANT SCHEMA (treat these as valid):\n${tenantBlock}` : `NOTE: No tenant schema loaded. Flag unknown datasets as INFO only.`}
 
+## RESPONSE FORMAT — ONLY this JSON:
 {
-  "score": <integer 0-100>,
+  "score": <0-100>,
   "confidence": "<VERIFIED|LIKELY_VALID|REVIEW_ADVISED|FLAGGED>",
-  "issues": [
-    {
-      "severity": "<ERROR|WARNING|INFO>",
-      "category": "<SYNTAX|FIELD_NAME|LOGIC|DATASET|PERFORMANCE>",
-      "description": "<concise technical description — one sentence>"
-    }
-  ],
-  "corrections": "<If ERROR-level issues exist, provide the corrected XQL query here. Otherwise empty string.>",
-  "summary": "<One sentence assessment for the operator — direct and tactical>"
+  "issues": [{"severity": "<ERROR|WARNING|INFO>", "category": "<SYNTAX|FIELD_NAME|LOGIC|DATASET|PERFORMANCE>", "description": "<one sentence>"}],
+  "corrections": "<corrected query if FLAGGED, else empty string>",
+  "summary": "<one sentence operator-facing assessment>"
+}`;
 }
 
-Confidence levels:
-- VERIFIED (90-100): No issues, syntactically correct and logically sound
-- LIKELY_VALID (70-89): Minor warnings only, will likely work with possible tuning
-- REVIEW_ADVISED (50-69): Warnings that could affect results — operator should review
-- FLAGGED (0-49): Errors that will cause query failure or wrong results`;
+// ─── HELPERS ─────────────────────────────────────────────────────────────────
 
-// ─── HELPERS ────────────────────────────────────────────────────────────────
-
-function extractXqlQueries(text: string): string[] {
+function extractQueries(text: string, platform: Platform): string[] {
   const matches: string[] = [];
-  const regex = /```(?:xql)?\n?([\s\S]*?)```/g;
+  const regex = /```(?:xql|kql|spl|cql)?\n?([\s\S]*?)```/g;
   let match;
   while ((match = regex.exec(text)) !== null) {
     const code = match[1].trim();
-    if (code.includes("dataset") || code.includes("| filter") || code.includes("| comp")) {
-      matches.push(code);
-    }
+    const isQuery =
+      platform === "xql" ? (code.includes("dataset") || code.includes("| filter")) :
+      platform === "kql" ? (code.includes("|") || code.includes("where")) :
+      platform === "spl" ? (code.includes("index=") || code.includes("| stats") || code.includes("| search")) :
+      platform === "cql" ? (code.includes("#event_simpleName") || code.includes("| groupBy") || code.includes("| limit")) :
+      false;
+    if (isQuery) matches.push(code);
   }
   return matches;
 }
 
-// ─── ROUTE HANDLER ──────────────────────────────────────────────────────────
+// ─── ROUTE HANDLER ───────────────────────────────────────────────────────────
 
 export async function POST(req: Request) {
-  const { messages, tenantSchemaContext } = await req.json();
+  const { messages, tenantSchemaContext, platform = "xql" } = await req.json();
+  const activePlatform = platform as Platform;
 
-  // Build tenant-aware system prompts
   const tenantBlock = tenantSchemaContext
-    ? `\n\n---\n\n${tenantSchemaContext}\n\n---`
+    ? `\n\n---\nTENANT SCHEMA (imported this session — in memory only):\n${tenantSchemaContext}\n---`
     : "";
 
-  const activeSystemPrompt = SYSTEM_PROMPT + tenantBlock;
+  const activeSystemPrompt = buildSystemPrompt(activePlatform, tenantBlock);
+  const activeValidatorPrompt = buildValidatorPrompt(activePlatform, tenantBlock);
 
-  const activeValidatorPrompt = VALIDATOR_PROMPT + (tenantSchemaContext
-    ? `\n\n## TENANT SCHEMA (imported this session)\nThe operator has loaded their tenant schema. Dataset names and field names present in the tenant schema below are VALID — do NOT flag them as unknown or incorrect. Only flag datasets/fields that appear in NEITHER the standard corpus nor the tenant schema.\n\n${tenantSchemaContext}`
-    : `\n\nNOTE: No tenant schema loaded. Flag any dataset not in the KNOWN VALID DATASETS list as an INFO-level finding (not an error — tenant may have custom datasets).`);
-
-  // ── STAGE 1: Generate ────────────────────────────────────────────────────
+  // ── STAGE 1: Generate ────────────────────────────────────────────────────────
   const generatedResponse = await client.messages.create({
     model: "claude-sonnet-4-20250514",
-    max_tokens: 1500,
+    max_tokens: 1800,
     system: activeSystemPrompt,
     messages,
   });
 
   const generatedText =
     generatedResponse.content[0].type === "text"
-      ? generatedResponse.content[0].text
-      : "";
+      ? generatedResponse.content[0].text : "";
 
-  // ── STAGE 2: Validate if an XQL query is present ─────────────────────────
-  const queries = extractXqlQueries(generatedText);
+  // ── STAGE 2: Validate ────────────────────────────────────────────────────────
+  const queries = extractQueries(generatedText, activePlatform);
   const userQuestion = messages[messages.length - 1]?.content || "";
   let validationMeta = null;
   let finalText = generatedText;
@@ -150,24 +159,16 @@ export async function POST(req: Request) {
         model: "claude-sonnet-4-20250514",
         max_tokens: 800,
         system: activeValidatorPrompt,
-        messages: [
-          {
-            role: "user",
-            content: `USER REQUEST: ${userQuestion}\n\nGENERATED XQL:\n\`\`\`xql\n${queries[0]}\n\`\`\``,
-          },
-        ],
+        messages: [{
+          role: "user",
+          content: `USER REQUEST: ${userQuestion}\n\nGENERATED QUERY (${activePlatform.toUpperCase()}):\n\`\`\`${activePlatform}\n${queries[0]}\n\`\`\``,
+        }],
       });
 
-      const validationText =
-        validationResponse.content[0].type === "text"
-          ? validationResponse.content[0].text
-          : "{}";
+      const validationText = validationResponse.content[0].type === "text"
+        ? validationResponse.content[0].text : "{}";
 
-      const cleanJson = validationText
-        .replace(/```json\n?/g, "")
-        .replace(/```\n?/g, "")
-        .trim();
-
+      const cleanJson = validationText.replace(/```json\n?/g, "").replace(/```\n?/g, "").trim();
       const parsed = JSON.parse(cleanJson);
 
       validationMeta = {
@@ -176,51 +177,38 @@ export async function POST(req: Request) {
         issues: parsed.issues || [],
         summary: parsed.summary || "",
         autoCorrected: false,
+        platform: activePlatform,
       };
 
-      // Auto-correct if FLAGGED and corrections provided
-      if (
-        parsed.confidence === "FLAGGED" &&
-        parsed.corrections?.trim().length > 0
-      ) {
+      if (parsed.confidence === "FLAGGED" && parsed.corrections?.trim().length > 0) {
         finalText = generatedText.replace(
-          /```(?:xql)?\n?[\s\S]*?```/,
-          "```xql\n" + parsed.corrections.trim() + "\n```"
+          /```(?:xql|kql|spl|cql)?\n?[\s\S]*?```/,
+          "```" + activePlatform + "\n" + parsed.corrections.trim() + "\n```"
         );
         validationMeta.autoCorrected = true;
       }
-    } catch {
-      validationMeta = null;
-    }
+    } catch { validationMeta = null; }
   }
 
-  // ── STREAM response with validation prefix ────────────────────────────────
+  // ── STREAM with validation prefix ────────────────────────────────────────────
   const encoder = new TextEncoder();
-
   const readable = new ReadableStream({
     async start(controller) {
       if (validationMeta) {
-        controller.enqueue(
-          encoder.encode(
-            `__VALIDATION__${JSON.stringify(validationMeta)}__END_VALIDATION__\n`
-          )
-        );
+        controller.enqueue(encoder.encode(
+          `__VALIDATION__${JSON.stringify(validationMeta)}__END_VALIDATION__\n`
+        ));
       }
-
       const chunkSize = 24;
       for (let i = 0; i < finalText.length; i += chunkSize) {
         controller.enqueue(encoder.encode(finalText.slice(i, i + chunkSize)));
         await new Promise((r) => setTimeout(r, 6));
       }
-
       controller.close();
     },
   });
 
   return new Response(readable, {
-    headers: {
-      "Content-Type": "text/plain; charset=utf-8",
-      "Transfer-Encoding": "chunked",
-    },
+    headers: { "Content-Type": "text/plain; charset=utf-8", "Transfer-Encoding": "chunked" },
   });
 }
