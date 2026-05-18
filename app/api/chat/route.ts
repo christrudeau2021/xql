@@ -56,7 +56,18 @@ Always respond with:
 ${platform === "xql" ? "- Use pipe-based XQL syntax with dataset = at the start\n- Use filter, fields, comp, alter, sort, limit stages" : ""}
 ${platform === "kql" ? "- Use KQL pipe syntax starting with table name\n- Use where, project, extend, summarize, order by, take\n- Prefer DeviceProcessEvents, DeviceNetworkEvents for endpoint hunting" : ""}
 ${platform === "spl" ? "- Start with index= and sourcetype= where known\n- Use | stats for aggregation, | table for field selection\n- Include relevant EventCode filters for Windows events" : ""}
-${platform === "cql" ? "- Start with #event_simpleName= filter\n- Use | groupBy() for aggregation, | limit() for results\n- Use field=value syntax before pipes for initial filtering" : ""}
+${platform === "cql" ? `- Start with #event_simpleName= filter
+- CRITICAL: Each pipe stage needs | prefix — never write bare field conditions on new lines without |
+- CORRECT: #event_simpleName=X\n| FileName=/pattern/i\n| CommandLine=*keyword*
+- WRONG: #event_simpleName=X\nFileName=/pattern/i (missing pipe)
+- Regex: use /pattern/i inline, or regex("pattern", field=F) in pipe stage
+- Regex negation: FileName!=/exclude\.exe|other\.exe/i — always escape dots in regex
+- groupBy() ALWAYS requires function= parameter: groupBy([fields], function=count())
+- sort() requires field= and order=: sort(field=_count, order=desc)
+- Auto-named count is _count (not count or _count())
+- filter() wrapper for complex NOT logic: | filter(NOT FileName=/svc\.exe/i)
+- For Kerberoasting: use LdapSearchQueryV4 event with SearchFilter=*servicePrincipalName*
+- For LDAP hunts: use LdapSearchQueryV4, not ProcessRollup2` : ""}
 ${tenantBlock}`;
 }
 
@@ -91,7 +102,45 @@ Validate the provided query and return ONLY a JSON object — no preamble, no ma
 ## KNOWN VALID DATASETS/TABLES FOR ${platform.toUpperCase()}:
 ${knownDatasets}
 
-${tenantBlock ? `## TENANT SCHEMA (treat these as valid):\n${tenantBlock}` : `NOTE: No tenant schema loaded. Flag unknown datasets as INFO only.`}
+${tenantBlock ? `## TENANT SCHEMA (treat these as valid):\n${tenantBlock}` : `NOTE: No tenant schema loaded. Flag unknown datasets as INFO only.
+
+## PLATFORM-SPECIFIC SYNTAX RULES — verify before flagging errors:
+
+### CQL VERIFIED CORRECT PATTERNS (do NOT flag these):
+- field!=/pattern\.ext/i  — regex negation with /i flag, CORRECT
+- groupBy([F1,F2], function=count())  — function= required, CORRECT  
+- sort(field=_count, order=desc)  — field= and order= required, CORRECT
+- | filter(NOT field=/pat/i)  — filter() wrapper for NOT, CORRECT
+- | FileName=/powershell\.exe/i  — inline regex with pipe, CORRECT
+- LdapSearchQueryV4 — CORRECT event for Kerberoasting, NOT ProcessRollup2
+- Fields ComputerName, FileName, CommandLine, UserName, RemoteAddressIP4, RemotePort, LocalAddressIP4, LocalPort, DomainName, ImageFileName, ParentBaseFileName, SHA256HashData, MD5HashData, aip, aid — ALL VERIFIED for standard CQL events
+
+### CQL ERRORS TO CATCH:
+- Bare field=value on new line without | pipe prefix — SYNTAX ERROR
+- groupBy() missing function= parameter — SYNTAX ERROR
+- sort() missing field= or order= — SYNTAX ERROR
+- Using _count in filter without | where() wrapper — LOGIC ERROR
+
+### KQL VERIFIED CORRECT PATTERNS (do NOT flag these):
+- =~ for case-insensitive string comparison — CORRECT
+- in~ for case-insensitive list — CORRECT  
+- ago(24h) timespan format — CORRECT
+- IdentityDirectoryEvents, IdentityLogonEvents — VALID Defender for Identity tables
+- SecurityEvent EventID 4769 TicketEncryptionType == "0x17" — CORRECT Kerberoasting detection
+- | where after | summarize — CORRECT for post-aggregation filter
+
+### SPL VERIFIED CORRECT PATTERNS (do NOT flag these):
+- Image="*powershell*" quoted wildcards — CORRECT
+- EventCode=4769 without quotes — CORRECT for integer fields
+- | where after | stats — CORRECT
+- earliest=-24h latest=now — CORRECT time syntax
+
+### XQL VERIFIED CORRECT PATTERNS (do NOT flag these):
+- ~= for regex matching — CORRECT (not /pattern/)
+- | filter field contains "str" — CORRECT (not LIKE)
+- | comp count() as c by field — CORRECT aggregation
+- to_epoch("2024-01-01","yyyy-MM-dd") — CORRECT date conversion
+- NOT using CIDR notation, instead using contains or explicit IPs — CORRECT WORKAROUND`}
 
 ## RESPONSE FORMAT — ONLY this JSON:
 {
