@@ -27,7 +27,7 @@ function buildSystemPrompt(platform: Platform, tenantBlock: string): string {
   const platformName = PLATFORM_NAMES[platform];
   const corpus = PLATFORM_CORPUS[platform];
 
-  return `You are XQL Shield — an expert threat hunting assistant for security operators and incident responders.
+  return `You are AXIOM — an expert cross-platform threat hunting assistant for security operators, incident responders, and detection engineers.
 
 The operator has selected: **${platformName}**
 
