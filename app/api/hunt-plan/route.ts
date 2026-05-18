@@ -1,40 +1,37 @@
 import Anthropic from "@anthropic-ai/sdk";
+import { Platform } from "../../platformTypes";
 
 const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 
-// ─── HUNT PLAN SYSTEM PROMPT ─────────────────────────────────────────────────
-// Grounded in PEAK (Prepare, Execute, Act with Knowledge) methodology
-// with structured analytic techniques from intelligence community practice
+const PLATFORM_NAMES: Record<Platform, string> = {
+  xql: "Palo Alto Networks Cortex XDR/XSIAM — XQL",
+  kql: "Microsoft Sentinel / Defender XDR — KQL",
+  spl: "Splunk Enterprise/Cloud — SPL",
+  cql: "CrowdStrike Falcon NG-SIEM — LogScale CQL",
+};
 
-const HUNT_PLAN_PROMPT = `You are a senior threat hunting methodologist and SOC analyst coach with deep expertise in structured threat hunting using the PEAK methodology (Prepare, Execute, Act with Knowledge) and intelligence-driven detection engineering.
+const HUNT_PLAN_PROMPT = `You are a senior threat hunting methodologist and SOC analyst coach with deep expertise in structured threat hunting using the PEAK methodology (Prepare, Execute, Act with Knowledge).
 
-Your job is to take a threat hunting query and XQL, and produce a complete, professional, hypothesis-based hunt plan that a security operator or threat hunter can follow, document, and hand off.
-
-## OUTPUT FORMAT
-
-Produce a structured hunt plan in clean markdown. Use this exact structure:
+Produce a complete hypothesis-based hunt plan in markdown. Use this exact structure:
 
 ---
 
-# Hunt Plan: [Short descriptive title — e.g. "PowerShell Encoded Command Execution"]
+# Hunt Plan: [Short descriptive title]
 
-**Classification:** Threat Hunt  
-**Methodology:** PEAK  
-**ATT&CK Technique:** [techniqueId] — [techniqueName] ([tactic])  
-**ATT&CK Reference:** [url]  
-**Date:** [use today's date]  
+**Platform:** [platform name]
+**Classification:** Threat Hunt
+**Methodology:** PEAK
+**ATT&CK Technique:** [techniqueId] — [techniqueName] ([tactic])
+**ATT&CK Reference:** [url]
+**Hunt ID:** HUNT-[YYYYMMDD]-[TECHNIQUE_ID]
+**Priority:** [CRITICAL/HIGH/MEDIUM]
 **Status:** Open
 
 ---
 
 ## Hypothesis
 
-> [Write a precise, falsifiable hypothesis statement. Format: "I hypothesize that [threat actor / malware / TTP] is [action] on [target/scope] using [mechanism], which would be observable as [observable artifact] in [data source]."]
-
-A good hypothesis is:
-- Specific and falsifiable — it can be proven true or false
-- Grounded in threat intelligence or prior incident data  
-- Scoped to a realistic environment assumption
+> [Single precise falsifiable statement: "I hypothesize that [actor/malware] is [action] on [scope] using [mechanism], which would be observable as [artifact] in [data source]."]
 
 ---
 
@@ -42,48 +39,46 @@ A good hypothesis is:
 
 | Parameter | Value |
 |-----------|-------|
-| **Time Window** | Recommended: last 30 days (adjust per retention policy) |
-| **Asset Scope** | All endpoints / Windows workstations / servers — specify if narrowing |
-| **Data Sources** | [list the XQL datasets being queried] |
-| **Priority** | [High / Medium / Low — based on technique prevalence] |
-| **Trigger** | [Proactive hunt / Intel-driven / Incident-triggered] |
+| **Platform** | [full platform name] |
+| **Time Window** | Recommended: last 30 days |
+| **Asset Scope** | [all endpoints / Windows / cloud / etc] |
+| **Data Sources** | [specific tables/datasets/indexes being queried] |
+| **Priority** | [CRITICAL/HIGH/MEDIUM] |
 
 ---
 
-## Assumptions & Baseline
+## Baseline — What Normal Looks Like
 
-What "normal" looks like in most environments for this behavior:
-- [2-4 bullet points describing benign baseline — what legitimate activity looks like]
+- [3-4 bullet points describing legitimate baseline activity for this behavior]
+- [Include process names, frequency, parent processes that are benign]
 
-Environmental assumptions built into this hunt:
+## Environmental Assumptions
+
 - [2-3 assumptions the query makes about the environment]
 
 ---
 
 ## Detection Query
 
-\`\`\`xql
-[insert the provided XQL query here — verbatim]
+\`\`\`[platform_code_label]
+[insert the provided query verbatim]
 \`\`\`
 
-**Query logic explained:**
-[2-3 sentences explaining what the query is looking for and why, in plain English]
+**Query logic:** [2-3 sentences explaining what it detects and why]
 
 ---
 
 ## True Positive Indicators
 
-Results that **confirm** malicious activity — escalate immediately:
-- [4-6 specific, concrete TP indicators — process names, paths, argument patterns, behavioral combinations]
+Escalate immediately if results show:
+- [4-6 specific, concrete indicators — process names, paths, argument patterns]
 
 **Confidence factors that raise TP likelihood:**
-- [3-4 contextual factors — e.g. "process spawned outside business hours", "parent process is browser", "destination IP is newly seen"]
+- [3-4 contextual factors]
 
 ---
 
 ## False Positive Analysis
-
-Common benign explanations for hits — investigate before escalating:
 
 | Scenario | Why It Triggers | How to Distinguish |
 |----------|----------------|-------------------|
@@ -91,62 +86,53 @@ Common benign explanations for hits — investigate before escalating:
 | [FP scenario 2] | [reason] | [distinguishing factor] |
 | [FP scenario 3] | [reason] | [distinguishing factor] |
 
-**Recommended exclusions to tune the query:**
-\`\`\`xql
-// Add to filter stage to reduce noise:
-[1-2 specific filter suggestions based on the technique]
+**Recommended exclusions:**
+\`\`\`[platform_code_label]
+// Tuning filters to reduce noise:
+[1-2 specific filter suggestions]
 \`\`\`
 
 ---
 
 ## Investigation Runbook
 
-When you get a hit, follow this sequence:
+1. **Triage** — [First check: is this process/connection expected on this host?]
+2. **Scope** — [How to determine if isolated or widespread]
+3. **Timeline** — [What to look before and after the event]
+4. **Enrich** — [Additional queries or data sources to pull]
+5. **Validate** — [Specific check to confirm TP vs FP]
 
-1. **Triage** — [First thing to check — is this process/connection/file expected on this host?]
-2. **Scope** — [How to determine if this is isolated or spread across multiple hosts]
-3. **Timeline** — [What to look for before and after the event — causality chain]
-4. **Enrich** — [What additional queries or data sources to pull — file hash lookup, parent process, network connections]
-5. **Validate** — [How to confirm TP vs FP — specific check to perform]
-
-**Follow-on XQL queries to enrich findings:**
-\`\`\`xql
-// Enrichment query — run against any suspicious host from primary results
-dataset = xdr_data
-| filter endpoint_id = "<ENDPOINT_ID_FROM_HIT>"
-| filter event_timestamp >= subtract_time(<HIT_TIMESTAMP>, "1h")
-| filter event_timestamp <= add_time(<HIT_TIMESTAMP>, "1h")
-| fields event_timestamp, event_type, actor_process_image_name, actor_process_command_line, action_remote_ip, action_file_path
-| sort asc event_timestamp
-| limit 500
+**Follow-on enrichment query:**
+\`\`\`[platform_code_label]
+[Platform-appropriate enrichment query for the specific hit]
 \`\`\`
 
 ---
 
 ## Escalation Criteria
 
-**Escalate to incident response if:**
-- [3-4 specific conditions that warrant escalation — be concrete, not generic]
+**Escalate to IR if:**
+- [3-4 specific conditions warranting escalation]
 
-**Document and monitor if:**
-- [2-3 conditions that warrant logging but not immediate escalation]
+**Monitor and log if:**
+- [2-3 conditions for watch-and-wait]
 
 **Close as false positive if:**
 - [2-3 clear FP disposition criteria]
 
 ---
 
-## Hunt Documentation
+## Hunt Record
 
 \`\`\`
 Hunt ID:         HUNT-[YYYYMMDD]-[TECHNIQUE_ID]
+Platform:        [platform]
 Analyst:         ___________________
 Date Started:    ___________________
 Date Closed:     ___________________
-Findings:        [ ] No findings  [ ] FP identified  [ ] TP escalated
+Findings:        [ ] No findings  [ ] FP  [ ] TP escalated
 Hosts Reviewed:  ___________________
-Notes:           
-_______________________________________________
+Notes:
 _______________________________________________
 Disposition:     ___________________
 \`\`\`
@@ -155,65 +141,57 @@ Disposition:     ___________________
 
 ## Related Hunts
 
-[List 3 related ATT&CK techniques worth hunting alongside this one — with technique IDs and one-line descriptions]
+[3 related ATT&CK techniques worth co-hunting — include T-numbers and one-line descriptions]
 
 ---
-
-*Generated by XQL Shield · PEAK Methodology · ATT&CK-aligned*
+*XQL Shield · PEAK Methodology · ATT&CK-aligned*
 
 ---
-
-## TONE AND STYLE REQUIREMENTS
-- Write for experienced security operators — no hand-holding on basic concepts
-- Be specific and actionable — avoid vague guidance like "investigate further"
-- TP/FP table should have real, environment-specific examples not generic placeholders
-- The hypothesis must be a single, precise, falsifiable statement — not a paragraph
-- Use actual process names, registry paths, file paths, and field names throughout
-- The runbook steps should be numbered and sequential — an analyst should be able to follow them without prior context`;
-
-// ─── ROUTE HANDLER ──────────────────────────────────────────────────────────
+STYLE: Write for experienced operators — specific, actionable, no generic filler. Use real process names, real paths, real field names throughout.`;
 
 export async function POST(req: Request) {
-  const { userQuery, xqlQuery, attackRef, tenantSchemaContext } = await req.json();
+  const { userQuery, xqlQuery, attackRef, tenantSchemaContext, platform = "xql" } = await req.json();
+  const activePlatform = platform as Platform;
+  const platformName = PLATFORM_NAMES[activePlatform];
+
+  const codeLabel = activePlatform;
 
   const tenantNote = tenantSchemaContext
-    ? `\n\nTENANT CONTEXT: The operator has imported a custom tenant schema. Reference their actual dataset names where relevant.\n${tenantSchemaContext}`
+    ? `\nTENANT CONTEXT: Operator has imported custom schema. Reference their actual dataset/table names.\n${tenantSchemaContext}`
     : "";
 
   const userMessage = `Generate a complete hypothesis-based hunt plan for the following:
 
+**Platform:** ${platformName}
+**Code label for queries:** ${codeLabel}
 **Operator's hunt query:** ${userQuery}
 
-**Generated XQL:**
-\`\`\`xql
+**Generated ${activePlatform.toUpperCase()} Query:**
+\`\`\`${codeLabel}
 ${xqlQuery}
 \`\`\`
 
 ${attackRef ? `**ATT&CK Mapping:**
 - Technique: ${attackRef.techniqueId} — ${attackRef.techniqueName}
 - Tactic: ${attackRef.tactic}
-- Reference: ${attackRef.url}` : "**ATT&CK Mapping:** Infer the most relevant technique from the query context."}
+- Reference: ${attackRef.url}` : "**ATT&CK Mapping:** Infer the most relevant technique from context."}
 
 ${tenantNote}
 
-Produce the full structured hunt plan following the template exactly. Make every section specific to this exact hunt scenario — no generic filler.`;
+Use [platform_code_label] = "${codeLabel}" for all code blocks. Make every section specific to this exact hunt. No generic filler.`;
 
   const stream = await client.messages.stream({
     model: "claude-sonnet-4-20250514",
-    max_tokens: 3000,
+    max_tokens: 3500,
     system: HUNT_PLAN_PROMPT,
     messages: [{ role: "user", content: userMessage }],
   });
 
   const encoder = new TextEncoder();
-
   const readable = new ReadableStream({
     async start(controller) {
       for await (const chunk of stream) {
-        if (
-          chunk.type === "content_block_delta" &&
-          chunk.delta.type === "text_delta"
-        ) {
+        if (chunk.type === "content_block_delta" && chunk.delta.type === "text_delta") {
           controller.enqueue(encoder.encode(chunk.delta.text));
         }
       }
@@ -222,9 +200,6 @@ Produce the full structured hunt plan following the template exactly. Make every
   });
 
   return new Response(readable, {
-    headers: {
-      "Content-Type": "text/plain; charset=utf-8",
-      "Transfer-Encoding": "chunked",
-    },
+    headers: { "Content-Type": "text/plain; charset=utf-8", "Transfer-Encoding": "chunked" },
   });
 }
