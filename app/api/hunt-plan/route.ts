@@ -144,7 +144,7 @@ Disposition:     ___________________
 [3 related ATT&CK techniques worth co-hunting — include T-numbers and one-line descriptions]
 
 ---
-*XQL Shield · PEAK Methodology · ATT&CK-aligned*
+*AXIOM · PEAK Methodology · ATT&CK-aligned*
 
 ---
 STYLE: Write for experienced operators — specific, actionable, no generic filler. Use real process names, real paths, real field names throughout.`;
