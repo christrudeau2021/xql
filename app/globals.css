@@ -13,8 +13,8 @@
   --accent-red: #ff2d55;
   --accent-yellow: #ffd60a;
   --text-primary: #e8f4f8;
-  --text-secondary: #7aafcc;
-  --text-dim: #3d6d8a;
+  --text-secondary: #8ec8e8;
+  --text-dim: #5a8fa8;
   --text-code: #00e5a0;
   --font-mono: "Courier New", "Lucida Console", "Consolas", monospace;
   --font-display: "Trebuchet MS", "Gill Sans", "Century Gothic", sans-serif;
@@ -1146,6 +1146,113 @@ body::after {
   border-color: var(--accent-yellow);
 }
 
+
+/* ─── PLATFORM CONTEXT BANNER ─── */
+/* Shown below header on mobile — makes active platform obvious */
+.platform-banner {
+  display: none;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  padding: 7px 16px;
+  border-bottom: 1px solid var(--border-dim);
+  background: var(--bg-panel);
+  flex-shrink: 0;
+}
+
+.platform-banner-step {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-family: var(--font-mono);
+  font-size: 9px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--text-dim);
+}
+
+.platform-banner-step.active {
+  color: var(--text-primary);
+}
+
+.platform-banner-step-num {
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  border: 1px solid var(--border-dim);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 8px;
+  flex-shrink: 0;
+}
+
+.platform-banner-step.active .platform-banner-step-num {
+  background: var(--platform-color, var(--accent-cyan));
+  border-color: var(--platform-color, var(--accent-cyan));
+  color: var(--bg-void);
+  font-weight: bold;
+}
+
+.platform-banner-arrow {
+  color: var(--text-dim);
+  font-size: 10px;
+}
+
+.platform-active-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 2px 10px;
+  border-radius: 3px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: bold;
+  letter-spacing: 0.08em;
+}
+
+/* ─── PLATFORM SELECTOR IMPROVEMENTS ─── */
+.platform-selector-wrap {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+}
+
+/* ─── CHAT AREA PLATFORM INDICATOR ─── */
+.chat-platform-indicator {
+  display: none; /* shown via mobile override */
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 16px;
+  border-bottom: 1px solid var(--border-dim);
+  background: var(--bg-panel);
+}
+
+.chat-platform-label {
+  font-family: var(--font-mono);
+  font-size: 9px;
+  letter-spacing: 0.15em;
+  text-transform: uppercase;
+  color: var(--text-dim);
+}
+
+.chat-platform-name {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: bold;
+  letter-spacing: 0.1em;
+}
+
+.chat-platform-vendor {
+  font-family: var(--font-mono);
+  font-size: 9px;
+  color: var(--text-dim);
+  letter-spacing: 0.06em;
+}
+
+
 /* ═══════════════════════════════════════════════════════════════
    MOBILE RESPONSIVE — full overhaul
    Strategy:
@@ -1256,11 +1363,11 @@ body::after {
   }
 
   .header-status {
-    gap: 8px;
+    gap: 6px;
   }
 
   .status-badge {
-    display: none; /* hide ONLINE text — just keep dot if needed */
+    display: none;
   }
 
   .model-badge {
@@ -1269,6 +1376,22 @@ body::after {
 
   /* Show sidebar toggle on mobile */
   .sidebar-toggle {
+    display: flex;
+  }
+
+  /* Show platform banner below header on mobile */
+  .platform-banner {
+    display: flex;
+  }
+
+  /* Platform selector — make chips larger on mobile */
+  .platform-selector-wrap button {
+    padding: 5px 8px !important;
+    font-size: 11px !important;
+  }
+
+  /* Chat platform indicator — always visible on mobile */
+  .chat-platform-indicator {
     display: flex;
   }
 
@@ -1328,6 +1451,12 @@ body::after {
 
   .hunt-idea-text {
     font-size: 11px;
+    color: #a8d4ee; /* brighter on mobile */
+    font-weight: 600;
+  }
+
+  .hunt-idea-bullet {
+    opacity: 0.9;
   }
 
   /* Larger tap targets for prompt chips */
@@ -1352,6 +1481,16 @@ body::after {
     max-width: 100%;
     font-size: 13px;
     padding: 10px 12px;
+    line-height: 1.7;
+  }
+
+  /* Better code block readability on mobile */
+  .code-block-header {
+    padding: 5px 10px;
+  }
+
+  .code-lang {
+    font-size: 10px;
   }
 
   .message-role {
