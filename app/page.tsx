@@ -853,6 +853,13 @@ export default function Home() {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [workflowStep, setWorkflowStep] = useState<1|2|3>(1);
   const [applyingIdx, setApplyingIdx] = useState<number | null>(null);
+  const [feedbackSent, setFeedbackSent] = useState<Set<number>>(new Set());
+  // Session ID — random, no PII, used only for grouping feedback signals
+  const sessionId = useRef<string>(
+    typeof crypto !== "undefined" && crypto.randomUUID
+      ? crypto.randomUUID()
+      : Math.random().toString(36).slice(2)
+  );
   const [platform, setPlatform] = useState<Platform>("xql");
   const platformRef = useRef<Platform>("xql");
   const [activeTactic, setActiveTactic] = useState<string>("ALL");
@@ -889,6 +896,34 @@ export default function Home() {
     setShowSchemaModal(false);
   }, []);
 
+
+
+  // ─── FEEDBACK ──────────────────────────────────────────────────────────────
+  const sendFeedback = useCallback(async (
+    msgIdx: number,
+    thumbs: "up" | "down",
+    msg: Message
+  ) => {
+    if (feedbackSent.has(msgIdx)) return; // one feedback per message
+    setFeedbackSent(prev => new Set(prev).add(msgIdx));
+
+    try {
+      await fetch("/api/feedback", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          platform: msg.platform || platform,
+          confidence: msg.validation?.confidence || "unknown",
+          score: msg.validation?.score || 0,
+          thumbs,
+          queryLength: msg.xqlQuery?.length || 0,
+          hadWarnings: msg.validation?.issues?.some(i => i.severity === "WARNING") || false,
+          wasRefined: msg.refined || false,
+          sessionId: sessionId.current,
+        }),
+      });
+    } catch { /* feedback is best-effort — never block UX */ }
+  }, [feedbackSent, platform]);
 
   // ─── APPLY SUGGESTIONS ─────────────────────────────────────────────────────
   const handleApplySuggestions = useCallback(async (msgIdx: number) => {
@@ -1295,6 +1330,81 @@ export default function Home() {
                               }
                               applying={applyingIdx === i}
                             />
+                          )}
+
+                          {/* Feedback thumbs — only on assistant messages with a query */}
+                          {msg.xqlQuery && !msg.streaming && (
+                            <div style={{
+                              display: "flex",
+                              alignItems: "center",
+                              gap: "6px",
+                              marginTop: "8px",
+                              paddingTop: "8px",
+                              borderTop: "1px solid var(--border-dim)",
+                            }}>
+                              <span style={{
+                                fontFamily: "var(--font-mono)",
+                                fontSize: "9px",
+                                color: "var(--text-dim)",
+                                letterSpacing: "0.1em",
+                              }}>
+                                {feedbackSent.has(i) ? "FEEDBACK RECEIVED" : "WAS THIS QUERY USEFUL?"}
+                              </span>
+                              {!feedbackSent.has(i) && (
+                                <>
+                                  <button
+                                    onClick={() => sendFeedback(i, "up", msg)}
+                                    title="Query was accurate and useful"
+                                    style={{
+                                      background: "none",
+                                      border: "1px solid var(--border-dim)",
+                                      color: "var(--text-dim)",
+                                      fontFamily: "var(--font-mono)",
+                                      fontSize: "11px",
+                                      padding: "2px 8px",
+                                      cursor: "pointer",
+                                      borderRadius: "3px",
+                                      transition: "all 0.15s",
+                                    }}
+                                    onMouseEnter={e => {
+                                      (e.currentTarget as HTMLButtonElement).style.borderColor = "#00ff9d";
+                                      (e.currentTarget as HTMLButtonElement).style.color = "#00ff9d";
+                                    }}
+                                    onMouseLeave={e => {
+                                      (e.currentTarget as HTMLButtonElement).style.borderColor = "var(--border-dim)";
+                                      (e.currentTarget as HTMLButtonElement).style.color = "var(--text-dim)";
+                                    }}
+                                  >
+                                    👍
+                                  </button>
+                                  <button
+                                    onClick={() => sendFeedback(i, "down", msg)}
+                                    title="Query had issues or was inaccurate"
+                                    style={{
+                                      background: "none",
+                                      border: "1px solid var(--border-dim)",
+                                      color: "var(--text-dim)",
+                                      fontFamily: "var(--font-mono)",
+                                      fontSize: "11px",
+                                      padding: "2px 8px",
+                                      cursor: "pointer",
+                                      borderRadius: "3px",
+                                      transition: "all 0.15s",
+                                    }}
+                                    onMouseEnter={e => {
+                                      (e.currentTarget as HTMLButtonElement).style.borderColor = "#ff2d55";
+                                      (e.currentTarget as HTMLButtonElement).style.color = "#ff2d55";
+                                    }}
+                                    onMouseLeave={e => {
+                                      (e.currentTarget as HTMLButtonElement).style.borderColor = "var(--border-dim)";
+                                      (e.currentTarget as HTMLButtonElement).style.color = "var(--text-dim)";
+                                    }}
+                                  >
+                                    👎
+                                  </button>
+                                </>
+                              )}
+                            </div>
                           )}
                         </>
                       ) : msg.content}
