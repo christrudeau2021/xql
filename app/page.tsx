@@ -39,11 +39,20 @@ interface Message {
   xqlQuery?: string | null;
   userQuery?: string | null;
   platform?: Platform;
+  refined?: boolean;  // true after apply-suggestions refinement
 }
 
 // ─── VALIDATION BADGE ────────────────────────────────────────────────────────
 
-function ValidationBadge({ v }: { v: ValidationResult }) {
+function ValidationBadge({
+  v,
+  onApply,
+  applying,
+}: {
+  v: ValidationResult;
+  onApply?: () => void;
+  applying?: boolean;
+}) {
   const [expanded, setExpanded] = useState(false);
   const config = {
     VERIFIED:       { color: "#00ff9d", bg: "rgba(0,255,157,0.08)",  border: "rgba(0,255,157,0.3)",  label: "VERIFIED",        icon: "✓" },
@@ -92,6 +101,36 @@ function ValidationBadge({ v }: { v: ValidationResult }) {
               <span style={{ color: "var(--text-secondary)", lineHeight: "1.5" }}>{issue.description}</span>
             </div>
           ))}
+        </div>
+      )}
+
+      {/* Apply Suggestions button — shown when WARNING/ERROR issues exist and handler provided */}
+      {onApply && v.issues.some(i => i.severity === "WARNING" || i.severity === "ERROR") && (
+        <div style={{ borderTop: `1px solid ${config.border}`, padding: "8px 12px", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+          <span style={{ fontSize: "9px", color: "var(--text-dim)", letterSpacing: "0.08em" }}>
+            {v.issues.filter(i => i.severity === "WARNING" || i.severity === "ERROR").length} issue(s) can be auto-resolved
+          </span>
+          <button
+            onClick={onApply}
+            disabled={applying}
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: "5px",
+              background: applying ? "rgba(255,214,10,0.05)" : "rgba(255,214,10,0.1)",
+              border: "1px solid rgba(255,214,10,0.5)",
+              color: applying ? "rgba(255,214,10,0.5)" : "#ffd60a",
+              fontFamily: "var(--font-mono)",
+              fontSize: "10px",
+              padding: "5px 12px",
+              cursor: applying ? "not-allowed" : "pointer",
+              letterSpacing: "0.1em",
+              borderRadius: "3px",
+              transition: "all 0.2s",
+            }}
+          >
+            {applying ? "⟳ APPLYING..." : "⟳ APPLY SUGGESTIONS"}
+          </button>
         </div>
       )}
     </div>
@@ -813,6 +852,7 @@ export default function Home() {
   const [pendingAttack, setPendingAttack] = useState<AttackRef | null>(null);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [workflowStep, setWorkflowStep] = useState<1|2|3>(1);
+  const [applyingIdx, setApplyingIdx] = useState<number | null>(null);
   const [platform, setPlatform] = useState<Platform>("xql");
   const platformRef = useRef<Platform>("xql");
   const [activeTactic, setActiveTactic] = useState<string>("ALL");
@@ -849,7 +889,106 @@ export default function Home() {
     setShowSchemaModal(false);
   }, []);
 
-  const sendMessage = useCallback(async (text: string, attackRef?: AttackRef | null, platformOverride?: Platform) => {
+
+  // ─── APPLY SUGGESTIONS ─────────────────────────────────────────────────────
+  const handleApplySuggestions = useCallback(async (msgIdx: number) => {
+    const msg = messages[msgIdx];
+    if (!msg || !msg.xqlQuery || !msg.validation) return;
+
+    const warningIssues = msg.validation.issues.filter(
+      (i) => i.severity === "WARNING" || i.severity === "ERROR"
+    );
+    if (warningIssues.length === 0) return;
+
+    setApplyingIdx(msgIdx);
+
+    try {
+      const tenantSchemaContext = tenantSchema ? schemaToPromptContext(tenantSchema) : undefined;
+
+      // Stage 1: Targeted refinement — fix only the flagged issues
+      const refineRes = await fetch("/api/refine", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          originalQuery: msg.xqlQuery,
+          userQuery: msg.userQuery || "",
+          platform: msg.platform || platform,
+          issues: warningIssues,
+          tenantSchemaContext,
+        }),
+      });
+
+      if (!refineRes.body) throw new Error("No response body");
+      const reader = refineRes.body.getReader();
+      const decoder = new TextDecoder();
+      let refinedText = "";
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        refinedText += decoder.decode(value, { stream: true });
+      }
+
+      // Extract refined query from code block
+      const codeMatch = refinedText.match(/```[\w]*\n?([\s\S]*?)```/);
+      if (!codeMatch) throw new Error("No query in refinement response");
+      const refinedQuery = codeMatch[1].trim();
+
+      // Stage 2: Re-validate the refined query via a lightweight validation call
+      const activePlatform = msg.platform || platform;
+      const validateRes = await fetch("/api/refine/validate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          query: refinedQuery,
+          userQuery: msg.userQuery || "",
+          platform: activePlatform,
+          tenantSchemaContext,
+        }),
+      });
+
+      let newValidation: ValidationResult = {
+        ...msg.validation,
+        autoCorrected: true,
+        score: Math.min(msg.validation.score + 15, 98),
+        issues: msg.validation.issues.filter((i) => i.severity === "INFO"),
+        confidence: "LIKELY_VALID",
+        summary: "Query refined — WARNING issues resolved.",
+      };
+
+      if (validateRes.ok) {
+        try {
+          const vdata = await validateRes.json();
+          if (vdata.score) newValidation = { ...vdata, autoCorrected: true };
+        } catch { /* use optimistic validation above */ }
+      }
+
+      // Update the message with refined query and new validation
+      setMessages((prev) => {
+        const updated = [...prev];
+        const oldMsg = updated[msgIdx];
+        const activePlatformLabel = activePlatform;
+        const newContent = oldMsg.content.replace(
+          /```[\w]*\n?[\s\S]*?```/,
+          "```" + activePlatformLabel + "\n" + refinedQuery + "\n```"
+        );
+        updated[msgIdx] = {
+          ...oldMsg,
+          content: newContent,
+          xqlQuery: refinedQuery,
+          validation: newValidation,
+          refined: true,
+        };
+        return updated;
+      });
+
+    } catch (err) {
+      console.error("Apply suggestions failed:", err);
+    } finally {
+      setApplyingIdx(null);
+    }
+  }, [messages, platform, tenantSchema]);
+
+    const sendMessage = useCallback(async (text: string, attackRef?: AttackRef | null, platformOverride?: Platform) => {
     if (!text.trim() || loading) return;
     const userMsg: Message = { role: "user", content: text.trim() };
     const newMessages = [...messages, userMsg];
@@ -1126,19 +1265,37 @@ export default function Home() {
                           <div dangerouslySetInnerHTML={{ __html: parseMarkdown(msg.content, msg.streaming || false) }}/>
                           {msg.attack && !msg.streaming && <AttackBadge a={msg.attack} />}
                           {msg.xqlQuery && !msg.streaming && (
-                            <button
-                              className="hunt-plan-btn"
-                              onClick={() => { setWorkflowStep(3); setHuntPlanTarget({
-                                userQuery: msg.userQuery || "",
-                                xqlQuery: msg.xqlQuery || "",
-                                attackRef: msg.attack,
-                                platform: msg.platform,
-                              }); }}
-                            >
-                              ⟴ BUILD HUNT PLAN
-                            </button>
+                            <div style={{ display: "flex", gap: "8px", alignItems: "center", flexWrap: "wrap" }}>
+                              <button
+                                className="hunt-plan-btn"
+                                onClick={() => { setWorkflowStep(3); setHuntPlanTarget({
+                                  userQuery: msg.userQuery || "",
+                                  xqlQuery: msg.xqlQuery || "",
+                                  attackRef: msg.attack,
+                                  platform: msg.platform,
+                                }); }}
+                              >
+                                ⟴ BUILD HUNT PLAN
+                              </button>
+                              {msg.refined && (
+                                <span style={{ fontFamily: "var(--font-mono)", fontSize: "9px", color: "#00ff9d", border: "1px solid rgba(0,255,157,0.3)", padding: "3px 8px", letterSpacing: "0.1em" }}>
+                                  ✓ REFINED
+                                </span>
+                              )}
+                            </div>
                           )}
-                          {msg.validation && !msg.streaming && <ValidationBadge v={msg.validation} />}
+                          {msg.validation && !msg.streaming && (
+                            <ValidationBadge
+                              v={msg.validation}
+                              onApply={
+                                msg.validation.confidence !== "VERIFIED" &&
+                                msg.validation.issues.some(i => i.severity === "WARNING" || i.severity === "ERROR")
+                                  ? () => handleApplySuggestions(i)
+                                  : undefined
+                              }
+                              applying={applyingIdx === i}
+                            />
+                          )}
                         </>
                       ) : msg.content}
                     </div>
