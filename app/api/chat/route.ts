@@ -55,7 +55,14 @@ Always respond with:
 ## PLATFORM NOTES
 ${platform === "xql" ? "- Use pipe-based XQL syntax with dataset = at the start\n- Use filter, fields, comp, alter, sort, limit stages" : ""}
 ${platform === "kql" ? "- Use KQL pipe syntax starting with table name\n- Use where, project, extend, summarize, order by, take\n- Prefer DeviceProcessEvents, DeviceNetworkEvents for endpoint hunting" : ""}
-${platform === "spl" ? "- Start with index= and sourcetype= where known\n- Use | stats for aggregation, | table for field selection\n- Include relevant EventCode filters for Windows events" : ""}
+${platform === "spl" ? `- Start with index= and sourcetype= where known
+- Use | stats for aggregation, | table for field selection
+- Include relevant EventCode filters for Windows events
+- O365: use CountryOrRegion NOT Country for geographic fields
+- O365: use | spath input=RawEventData for nested field extraction, NOT wildcard search on RawEventData
+- O365: Recipients is nested — use spath or RecipientInfo{}.Recipients{} pattern
+- O365: Parameters use spath: Parameters{}.Name and Parameters{}.Value
+- Prefer separate searches over multisearch with null-padding for BEC investigations` : ""}
 ${platform === "cql" ? `- Start with #event_simpleName= filter
 - CRITICAL: Each pipe stage needs | prefix — never write bare field conditions on new lines without |
 - CORRECT: #event_simpleName=X\n| FileName=/pattern/i\n| CommandLine=*keyword*
@@ -140,7 +147,11 @@ ${tenantBlock ? `## TENANT SCHEMA (treat these as valid):\n${tenantBlock}` : `NO
 - field IN ("a","b","c") — VALID SPL IN operator
 - values(), dc(), round(), if(), strftime(), replace(), coalesce() — all VALID SPL functions
 - | eval with arithmetic and string functions — VALID
-- O365 fields UserId, ClientIP, Operation, Workload, RecordType, Parameters, Subject, Recipients, Name, MessageId, UserAgent, Country, ResultStatus — VERIFIED for index=o365 sourcetype=o365:management:activity
+- O365 fields UserId, ClientIP, Operation, Workload, RecordType, Parameters, Subject, Name, MessageId, UserAgent, ResultStatus — VERIFIED for index=o365 sourcetype=o365:management:activity
+- CountryOrRegion — CORRECT O365 field name. Country alone is WRONG for O365 — flag as WARNING
+- Recipients — nested in O365 JSON, direct field reference is unreliable — flag as WARNING, suggest spath extraction
+- RawEventData wildcard search e.g. RawEventData="*ForwardTo*" — works but PERFORMANCE WARNING, suggest spath
+- Parameters{}.Name and Parameters{}.Value — correct spath extraction for O365 cmdlet parameters
 
 ### CRITICAL FALSE POSITIVE PREVENTION:
 - Comment style using // → do NOT flag, not a syntax issue, not even INFO
