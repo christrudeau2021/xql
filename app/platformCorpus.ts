@@ -1082,6 +1082,109 @@ The key event is LdapSearchQueryV4 — NOT ProcessRollup2.
 | Multiple bare field filters on separate lines | Use \`| field=value\` per line or combine with spaces | Each pipe stage is a separate operation |
 
 
+
+### CQL MULTI-EVENT CORRELATION PATTERNS
+
+CQL does NOT support case{} statement routing or SQL-style UNION across event types.
+Use these patterns instead:
+
+#### PATTERN 1: Separate named queries (recommended for incident response)
+\`\`\`cql
+// Authentication timeline for a specific user
+#event_simpleName=UserLogon
+| UserName=*jsmith*
+| groupBy([ComputerName, UserName, LogonType, AuthenticationPackage, UserIsAdmin],
+          function=[count(as=logon_count), min(@timestamp, as=first_seen), max(@timestamp, as=last_seen)])
+| sort(field=last_seen, order=desc)
+\`\`\`
+
+\`\`\`cql
+// Process execution on hosts where user logged in (run after identifying hosts above)
+#event_simpleName=ProcessRollup2
+| UserName=*jsmith*
+| groupBy([ComputerName, UserName, FileName, CommandLine],
+          function=[count(as=exec_count), min(@timestamp, as=first_exec)])
+| sort(field=first_exec, order=desc)
+\`\`\`
+
+\`\`\`cql
+// Network activity correlated by aid (agent ID) — NOT by UserName
+#event_simpleName=NetworkConnectIP4
+| aid=<AID_FROM_LOGON_QUERY>
+| RemoteAddressIP4!=/^(10\.|172\.(1[6-9]|2[0-9]|3[01])\.|192\.168\.)/
+| groupBy([ComputerName, RemoteAddressIP4, RemotePort, FileName],
+          function=[count(as=conn_count), min(@timestamp, as=first_conn)])
+| sort(field=conn_count, order=desc)
+\`\`\`
+
+#### PATTERN 2: OR across same-schema event types
+\`\`\`cql
+// Multiple logon event types (same fields)
+#event_simpleName=UserLogon OR #event_simpleName=UserLogonFailed
+| UserName=*jsmith*
+| groupBy([ComputerName, #event_simpleName, UserName, LogonType],
+          function=[count(as=attempts)])
+| sort(field=attempts, order=desc)
+\`\`\`
+
+#### PATTERN 3: join() for cross-event correlation
+\`\`\`cql
+// Correlate logons with subsequent process execution on same host
+#event_simpleName=UserLogon
+| UserName=*jsmith*
+| groupBy([ComputerName, UserName, aid], function=[max(@timestamp, as=logon_time)])
+| join(query={
+    #event_simpleName=ProcessRollup2
+    | UserName=*jsmith*
+    | groupBy([ComputerName, FileName, CommandLine, aid], function=[min(@timestamp, as=exec_time)])
+  }, field=[aid], mode=inner)
+| where(exec_time > logon_time)
+| sort(field=exec_time, order=desc)
+\`\`\`
+
+### CQL FIELD SCOPING BY EVENT TYPE
+
+NOT all fields exist on all events — this is a common source of CQL errors:
+
+| Field | Available On | NOT Available On |
+|-------|-------------|-----------------|
+| UserName | ProcessRollup2, UserLogon | NetworkConnectIP4, DnsRequest |
+| FileName | ProcessRollup2, NewExecutableWritten | UserLogon, NetworkConnectIP4 |
+| CommandLine | ProcessRollup2 | UserLogon, NetworkConnectIP4 |
+| RemoteAddressIP4 | NetworkConnectIP4 | ProcessRollup2, UserLogon |
+| LogonType | UserLogon | ProcessRollup2, NetworkConnectIP4 |
+| UserIsAdmin | UserLogon | ProcessRollup2, NetworkConnectIP4 |
+| DomainName | DnsRequest | ProcessRollup2, UserLogon |
+| aid | ALL events | — |
+| ComputerName | ALL events | — |
+| @timestamp | ALL events | — |
+
+#### Correlating across event types — use aid (agent ID)
+\`\`\`cql
+// CORRECT — correlate by aid, not by UserName across event types
+#event_simpleName=UserLogon UserName=*jsmith*
+| groupBy([ComputerName, aid], function=max(@timestamp, as=logon_time))
+| join(query={
+    #event_simpleName=NetworkConnectIP4
+    | groupBy([ComputerName, aid, RemoteAddressIP4, RemotePort], function=count(as=connections))
+  }, field=[aid], mode=inner)
+
+// WRONG — UserName filter applied to NetworkConnectIP4 will return no results
+// #event_simpleName in [ProcessRollup2, NetworkConnectIP4]
+// | UserName=*jsmith*   <-- UserName does not exist on NetworkConnectIP4
+\`\`\`
+
+### CQL UNSUPPORTED SYNTAX
+
+| NOT VALID IN CQL | USE INSTEAD |
+|-----------------|-------------|
+| \`case { event=X | op1; event=Y | op2; }\` | Separate queries or join() |
+| \`UNION\` | Run separate queries |
+| \`SELECT\` | \`| select(field1, field2)\` or \`| table([field1, field2])\` |
+| \`WHERE\` at start | field=value filter before pipes |
+| \`GROUP BY\` | \`| groupBy([fields], function=count())\` |
+| \`ORDER BY\` | \`| sort(field=name, order=desc)\` |
+
 ### CQL HUNT EXAMPLES
 
 #### PowerShell encoded commands
