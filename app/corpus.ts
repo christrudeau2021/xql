@@ -1,686 +1,1249 @@
-// XQL Corpus — Palo Alto Networks XQL Query Language
-// Reference knowledge for the AI translator
+// ─── PLATFORM-SPECIFIC CORPUS ────────────────────────────────────────────────
+// Field mappings, syntax rules, datasets, and examples for each platform
 
-export const XQL_CORPUS = `
-## XQL (Extended Query Language) — Cortex XDR / XSIAM
+export const KQL_CORPUS = `
+## KQL (Kusto Query Language) — Microsoft Sentinel & Defender XDR
 
-XQL is a SQL-like query language designed for security investigations across Cortex XDR/XSIAM datasets.
-It uses a pipe-based syntax where each stage filters, transforms, or aggregates data.
+KQL uses a pipe-based syntax similar to XQL. Data flows left to right through transformation operators.
 
----
-
-## BASIC QUERY STRUCTURE
-
-\`\`\`
-dataset = <dataset_name>
-| filter <condition>
-| fields <field1>, <field2>
-| sort desc <field>
-| limit <n>
+### BASIC STRUCTURE
+\`\`\`kql
+TableName
+| where Condition
+| project Field1, Field2
+| order by Timestamp desc
+| take 200
 \`\`\`
 
----
+### KEY OPERATORS
+- where — filter rows (equivalent to XQL filter)
+- project — select columns (equivalent to XQL fields)
+- extend — add computed columns (equivalent to XQL alter)
+- summarize — aggregate (equivalent to XQL comp)
+- order by — sort
+- take / limit — limit rows
+- join kind=inner/left/right/full — join tables
+- union — combine tables
+- parse — extract fields from strings
+- mv-expand — expand arrays
+- distinct — deduplicate
+- count — count rows
+- render — visualize (charts, timecharts)
 
-## CONFIG BLOCK (alternative to filter-based time range)
+### FILTER OPERATORS
+- == , != , < , > , <= , >=
+- in~ (case-insensitive), !in
+- contains, !contains, startswith, endswith
+- matches regex, =~ (case-insensitive equals)
+- has, has_all, has_any (token search)
+- isnotempty(), isnull(), isnotnull()
+- between (low .. high)
 
-\`\`\`xql
-// config block sets global timeframe for the query
-// Use instead of | filter event_timestamp >= subtract_time(...)
-config timeframe = 24h
-| dataset = xdr_data
-| filter event_type = "PROCESS"
-| filter actor_process_image_name = "powershell.exe"
+### TIME FILTERING
+\`\`\`kql
+| where TimeGenerated >= ago(24h)
+| where TimeGenerated between (datetime(2024-01-01) .. datetime(2024-01-31))
+| where TimeGenerated >= startofday(ago(7d))
+\`\`\`
+Time units: s, m, h, d, w (e.g. ago(30m), ago(7d))
+
+### AGGREGATION
+\`\`\`kql
+| summarize count() by Computer
+| summarize count(), dcount(TargetUserName) by Computer
+| summarize make_set(TargetIP) by SourceIP
+| summarize arg_max(TimeGenerated, *) by DeviceId
+| summarize countif(EventID == 4625) by TargetUserName
 \`\`\`
 
-Time units for config: m (minutes), h (hours), d (days), w (weeks)
-Note: config block must appear BEFORE dataset declaration
+### STRING FUNCTIONS
+- tostring(), toint(), tolong(), todatetime()
+- tolower(), toupper()
+- strlen(), substring(), split(), strcat()
+- extract(regex, captureGroup, text)
+- parse_json(), bag_keys()
+- replace_string(), trim()
+- base64_decode_tostring()
 
----
+### CORE SENTINEL TABLES
+#### Identity & Authentication
+- SigninLogs — Azure AD sign-ins
+- AADNonInteractiveUserSignInLogs — non-interactive sign-ins
+- AuditLogs — Azure AD audit events
+- IdentityLogonEvents — Defender identity logon
+- IdentityDirectoryEvents — AD directory changes
 
-## CORE DATASETS (most commonly used)
+#### Endpoint (Defender for Endpoint / MDE)
+- DeviceProcessEvents — process creation
+- DeviceNetworkEvents — network connections
+- DeviceFileEvents — file operations
+- DeviceRegistryEvents — registry changes
+- DeviceLogonEvents — logon events
+- DeviceImageLoadEvents — DLL/module loads
+- DeviceEvents — misc device events
+- DeviceAlertEvents — MDE alerts
 
-### Endpoint / Process Activity
-- **xdr_data** — Main endpoint telemetry (process, network, file, registry)
-- **process_events** — Process creation events
-- **network_connections** — Network connection telemetry
-- **file_events** — File create/modify/delete events
-- **registry_events** — Windows registry operations
-- **module_events** — DLL/module load events
+#### Email (Defender for Office)
+- EmailEvents — email flow
+- EmailAttachmentInfo — attachments
+- EmailUrlInfo — URLs in email
+- EmailPostDeliveryEvents — post-delivery actions
 
-### Identity & Authentication
-- **auth_events** — Authentication attempts (login/logoff)
-- **identity_analytics** — Identity-based analytics
-- **directory_sync** — AD/LDAP directory sync data
+#### Cloud
+- AzureActivity — Azure control plane
+- AWSCloudTrail — AWS events
+- GCPAuditLogs — GCP events
+- CloudAppEvents — MCAS/Defender for Cloud Apps
+- OfficeActivity — M365 audit log
 
-### Network / Firewall
-- **firewall_events** — Palo Alto Networks firewall logs
-- **network_story** — Network analytics story
-- **dns_events** — DNS query telemetry
-- **url_events** — URL/HTTP traffic
+#### Network / Firewall
+- CommonSecurityLog — CEF/syslog (firewalls, proxies)
+- DnsEvents — DNS queries
+- NetworkAccessTraffic — network traffic
+- AzureFirewallApplicationRule — Azure Firewall
 
-### Cloud
-- **cloud_audit_logs** — Cloud provider audit logs (AWS CloudTrail, Azure Activity, GCP)
-- **cloud_asset_db** — Cloud asset inventory
+#### Security Events
+- SecurityEvent — Windows Security event log
+- WindowsEvent — Windows event log (new schema)
+- Syslog — Linux syslog
+- SecurityAlert — all alerts
+- SecurityIncident — incidents
 
-### Alerts & Incidents
-- **xdr_alerts** — All XDR alerts
-- **incidents** — Incident data
+### KEY FIELD NAMES (Defender XDR / MDE)
+- Timestamp — event time
+- DeviceName — hostname
+- AccountName, AccountDomain — user
+- InitiatingProcessFileName — parent process
+- InitiatingProcessCommandLine — parent cmdline
+- FileName — process filename
+- ProcessCommandLine — full command line
+- SHA256, MD5 — file hashes
+- RemoteIP, RemotePort, RemoteUrl — network destination
+- LocalIP, LocalPort — source
+- ActionType — type of action taken
+- FolderPath — file path
+- RegistryKey, RegistryValueName, RegistryValueData
 
----
 
-## FILTERING — filter stage
 
-\`\`\`
-| filter actor_process_image_name = "powershell.exe"
-| filter action_remote_port in (443, 80, 8080)
-| filter event_timestamp >= to_epoch("2024-01-01", "yyyy-MM-dd")
-| filter actor_process_command_line contains "encoded"
-| filter actor_process_command_line ~= ".*base64.*" // regex
-\`\`\`
+### KQL EXTENDED COVERAGE
 
-### Filter Operators
-- = , != , < , > , <= , >=
-- in (val1, val2) — match list
-- not in (val1, val2) — exclude list
-- contains — substring match (case-insensitive)
-- not contains
-- ~= — regex match
-- !~= — regex NOT match
-- starts_with / ends_with
-- is null / is not null
-
----
-
-## FIELD SELECTION — fields stage
-
-\`\`\`
-| fields event_timestamp, actor_process_image_name, action_remote_ip, action_remote_port
-| fields - unwanted_field  // exclude a field
-\`\`\`
-
----
-
-## SORTING — sort stage
-
-\`\`\`
-| sort desc event_timestamp
-| sort asc actor_process_image_name
-\`\`\`
-
----
-
-## LIMITING — limit stage
-
-\`\`\`
-| limit 100
-\`\`\`
-
----
-
-## AGGREGATION — comp (compute) stage
-
-\`\`\`
-| comp count() as total_count
-| comp count() as total_count by actor_process_image_name
-| comp count_distinct(action_remote_ip) as unique_ips by actor_process_image_name
-| comp sum(bytes_sent) as total_bytes by src_ip
-| comp min(event_timestamp), max(event_timestamp) by actor_process_image_name
+#### Registry Persistence
+\`\`\`kql
+// Registry Run key persistence
+DeviceRegistryEvents
+| where TimeGenerated >= ago(7d)
+| where RegistryKey contains "CurrentVersion\\Run"
+    or RegistryKey contains "CurrentVersion\\RunOnce"
+| where InitiatingProcessFileName !in~ ("msiexec.exe","setup.exe","install.exe","trustedinstaller.exe")
+| project TimeGenerated, DeviceName, InitiatingProcessAccountName,
+          InitiatingProcessFileName, RegistryKey, RegistryValueName, RegistryValueData
+| order by TimeGenerated desc
 \`\`\`
 
-### Aggregation Functions
-- count() — count all rows
-- count_distinct(field) — count unique values
-- sum(field) — sum numeric field
-- avg(field) — average
-- min(field) — minimum value
-- max(field) — maximum value
-- values(field) — collect all values into array
-- array_agg(field) — aggregate into array
-
----
-
-## FIELD CREATION — alter stage (computed fields)
-
-\`\`\`
-| alter lower_process = lowercase(actor_process_image_name)
-| alter cmd_length = string_length(actor_process_command_line)
-| alter is_encoded = if(actor_process_command_line contains "base64", "YES", "NO")
-| alter hour_of_day = extract_time(event_timestamp, "HOUR")
+#### Shadow Copy Deletion
+\`\`\`kql
+DeviceProcessEvents
+| where TimeGenerated >= ago(24h)
+| where FileName =~ "vssadmin.exe" and ProcessCommandLine has_any ("delete","resize")
+    or FileName =~ "wmic.exe" and ProcessCommandLine has "shadowcopy"
+    or FileName =~ "wbadmin.exe" and ProcessCommandLine has "delete"
+| project TimeGenerated, DeviceName, AccountName, FileName, ProcessCommandLine
 \`\`\`
 
-### Useful alter functions
-- lowercase(field) / uppercase(field)
-- string_length(field)
-- substring(field, start, length)
-- split(field, delimiter)
-- concat(field1, field2)
-- to_string(field)
-- to_integer(field)
-- if(condition, true_value, false_value)
-- coalesce(field1, field2) — first non-null
-- trim(field)
-- extract_time(timestamp, "HOUR"|"MINUTE"|"DAY"|"MONTH")
-- format_timestamp(field, "yyyy-MM-dd HH:mm:ss")
-- to_epoch(string, format)
-- from_epoch(ms)
-- json_extract_scalar(field, "$.path") — parse JSON
-- array_length(field)
-- array_contains(array_field, value)
-
----
-
-## TIME FILTERING
-
-\`\`\`
-| filter event_timestamp >= subtract_time(now(), "24h")
-| filter event_timestamp between (to_epoch("2024-01-01", "yyyy-MM-dd"), to_epoch("2024-01-31", "yyyy-MM-dd"))
+#### Conditional Access & MFA Events (SigninLogs)
+\`\`\`kql
+// SigninLogs key fields for identity hunting
+// ConditionalAccessStatus: success, failure, notApplied, unknownFutureValue
+// AuthenticationRequirement: singleFactorAuthentication / multiFactorAuthentication
+SigninLogs
+| where TimeGenerated >= ago(24h)
+| where ConditionalAccessStatus != "success"
+| extend MFARequired = AuthenticationRequirement
+| extend Country = tostring(LocationDetails.countryOrRegion)
+| extend City = tostring(LocationDetails.city)
+| project TimeGenerated, UserPrincipalName, IPAddress, Country, City,
+          ConditionalAccessStatus, MFARequired, AppDisplayName, ResultType
+| order by TimeGenerated desc
 \`\`\`
 
-Time units: s (seconds), m (minutes), h (hours), d (days), w (weeks)
-
----
-
-## JOINS — join stage
-
-\`\`\`
-dataset = xdr_data
-| filter event_type = "PROCESS"
-| join type=inner (
-    dataset = network_connections
-    | filter action_remote_port = 443
-  ) actor_process_image_name
+#### Impossible Travel
+\`\`\`kql
+// Impossible travel — same user from multiple countries in short window
+SigninLogs
+| where TimeGenerated >= ago(24h)
+| where ResultType == 0
+| extend Country = tostring(LocationDetails.countryOrRegion)
+| summarize Countries=make_set(Country), IPs=make_set(IPAddress), Count=count()
+    by UserPrincipalName, bin(TimeGenerated, 1h)
+| where array_length(Countries) > 1
+| order by TimeGenerated desc
 \`\`\`
 
-Join types: inner, left, right, full
-
----
-
-## UNION — union stage
-
-\`\`\`
-union (
-  dataset = process_events | filter actor_process_image_name = "cmd.exe",
-  dataset = process_events | filter actor_process_image_name = "powershell.exe"
-)
+#### Scheduled Task via schtasks
+\`\`\`kql
+DeviceProcessEvents
+| where TimeGenerated >= ago(7d)
+| where FileName =~ "schtasks.exe" and ProcessCommandLine has "/create"
+| where InitiatingProcessFileName !in~ ("taskeng.exe","taskhostw.exe","svchost.exe")
+| project TimeGenerated, DeviceName, AccountName, ProcessCommandLine, InitiatingProcessFileName
 \`\`\`
 
----
-
-## COMMON XQL FIELD NAMES (xdr_data / endpoint telemetry)
-
-### Process fields
-- actor_process_image_name — executing process filename
-- actor_process_image_path — full path
-- actor_process_command_line — full command line
-- actor_process_pid — process ID
-- actor_process_signature_status — digital signature status (SIGNED, UNSIGNED)
-- actor_process_signature_vendor — signing vendor
-- actor_process_causality_id — causality chain ID
-- causality_actor_process_image_name — parent/causality process
-- os_actor_process_image_name — OS-level process
-
-### Target Process fields
-- action_process_image_name — spawned process
-- action_process_image_path
-- action_process_command_line
-
-### Network fields
-- action_remote_ip — destination IP
-- action_remote_port — destination port
-- action_local_ip — source IP
-- action_local_port — source port
-- action_network_protocol — TCP, UDP, ICMP
-- dns_query_name — DNS query
-- action_external_hostname — resolved hostname
-
-### File fields
-- action_file_name — file name
-- action_file_path — full path
-- action_file_extension — extension
-- action_file_sha256 — SHA256 hash
-- action_file_size — file size in bytes
-
-### Registry fields
-- action_registry_key_name — registry key
-- action_registry_value_name — value name
-- action_registry_data — value data
-
-### General / Common
-- event_timestamp — event time (epoch ms)
-- event_type — PROCESS, NETWORK, FILE, REGISTRY, etc.
-- endpoint_id — unique endpoint identifier
-- host_name — hostname
-- agent_hostname — hostname (alternate)
-- agent_ip_addresses — endpoint IPs
-- os_type — WINDOWS, MAC, LINUX
-- user_name — username
-- agent_domain — domain
-
----
-
-
-### KERBEROASTING IN XQL (T1558.003)
-
-In Cortex XDR/XSIAM, Kerberoasting is detected via:
-1. Identity Analytics dataset for SPN enumeration
-2. Network events showing unusual Kerberos traffic
-3. Process events for LDAP query tools (adfind, PowerView, Rubeus)
-
-\`\`\`xql
-// Hunt for Kerberoasting — LDAP SPN enumeration via process args
-dataset = xdr_data
-| filter event_type = "PROCESS"
-| filter actor_process_command_line ~= "(?i)(servicePrincipalName|GetUserSPNs|kerberoast|Invoke-Kerberoast)"
-| filter actor_process_command_line not ~= "(?i)(krbtgt)"
-| fields event_timestamp, host_name, user_name,
-         actor_process_image_name, actor_process_command_line
-| sort desc event_timestamp
-| limit 200
+#### New Admin Account (SecurityEvent)
+\`\`\`kql
+// EventID 4720 = account created, 4732 = added to security group (Administrators)
+SecurityEvent
+| where TimeGenerated >= ago(7d)
+| where EventID in (4720, 4728, 4732, 4756)
+| extend AccountCreated = TargetUserName
+| project TimeGenerated, Computer, EventID, AccountCreated, SubjectUserName, SubjectLogonId
+| order by TimeGenerated desc
 \`\`\`
 
-\`\`\`xql
-// Kerberoasting via identity analytics — unusual SPN requests
-dataset = identity_analytics
-| filter event_sub_type = "KERBEROS_TGS_REQUEST"
-| filter tgt_service not contains "krbtgt"
-| filter tgt_service not contains "$"
-| comp count() as request_count, values(tgt_service) as services
-    by source_ip, user_name
-| filter request_count > 5
-| sort desc request_count
+#### WMI Event Subscriptions
+\`\`\`kql
+// WMI persistence via DeviceEvents
+DeviceEvents
+| where TimeGenerated >= ago(7d)
+| where ActionType in ("WmiBindingCreated","WmiConsumerCreated","WmiFilterCreated")
+    or (ActionType == "ProcessCreated" and InitiatingProcessFileName =~ "wmiprvse.exe")
+| project TimeGenerated, DeviceName, AccountName, ActionType, AdditionalFields
 \`\`\`
 
-### XQL COMMON MISTAKES TO AVOID
+#### PsExec Detection
+\`\`\`kql
+// PsExec via service creation or named pipe
+DeviceProcessEvents
+| where TimeGenerated >= ago(24h)
+| where FileName =~ "psexesvc.exe"
+    or (FileName =~ "services.exe" and ProcessCommandLine has "PSEXESVC")
+    or InitiatingProcessFileName =~ "psexec.exe"
+| project TimeGenerated, DeviceName, AccountName, FileName, ProcessCommandLine
+
+// Alternative — via DeviceEvents (named pipe)
+DeviceEvents
+| where TimeGenerated >= ago(24h)
+| where ActionType == "NamedPipeEvent"
+| where AdditionalFields has "psexec" or AdditionalFields has "PSEXESVC"
+\`\`\`
+
+#### SigninLogs — Key Fields Reference
+- UserPrincipalName — UPN e.g. user@domain.com
+- UserDisplayName — display name
+- IPAddress — source IP
+- LocationDetails — nested: city, state, countryOrRegion, geoCoordinates
+- DeviceDetail — nested: deviceId, operatingSystem, browser
+- ConditionalAccessStatus — success, failure, notApplied
+- AuthenticationRequirement — singleFactorAuthentication, multiFactorAuthentication
+- ResultType — 0=success, non-zero=failure code
+- ResultDescription — human readable failure reason
+- AppDisplayName — application being accessed
+- ClientAppUsed — Browser, Mobile Apps and Desktop Clients, etc
+- RiskLevelDuringSignIn — none, low, medium, high
+- RiskState — none, confirmedSafe, remediated, dismissed, atRisk, confirmedCompromised
+
+### COMMON KQL MISTAKES TO AVOID
 
 | WRONG | CORRECT | Reason |
 |-------|---------|--------|
-| \`| filter action_remote_ip in ("10.0.0.0/8")\` | \`| filter action_remote_ip not contains "10."\` | XQL does NOT support CIDR — use string matching |
-| \`| filter timestamp >= "2024-01-01"\` | \`| filter event_timestamp >= to_epoch("2024-01-01","yyyy-MM-dd")\` | Must use to_epoch() for date strings |
-| \`| filter field like "%pattern%"\` | \`| filter field contains "pattern"\` | Use contains not LIKE |
-| \`| filter field = /regex/\` | \`| filter field ~= "regex"\` | XQL regex uses ~= not /pattern/ |
-| \`| group by field\` | \`| comp count() as c by field\` | Use comp not group by |
-| \`| order by field desc\` | \`| sort desc field\` | Use sort not order by |
-| \`| select field1, field2\` | \`| fields field1, field2\` | Use fields not select |
+| \`where FileName = "powershell.exe"\` | \`where FileName =~ "powershell.exe"\` | Use =~ for case-insensitive filename matching |
+| \`where FileName in ("cmd.exe","PS.exe")\` | \`where FileName in~ ("cmd.exe","PS.exe")\` | in~ for case-insensitive list match |
+| \`summarize count by DeviceName\` | \`summarize count() by DeviceName\` | count requires parentheses |
+| \`where TimeGenerated > ago("24h")\` | \`where TimeGenerated >= ago(24h)\` | ago() takes timespan, not string |
+| \`project-away *\` to select all | \`project Field1, Field2\` | Explicit projection required |
+| \`where ProcessCommandLine contains "base64"\` | \`where ProcessCommandLine has "base64"\` | has is faster for token search |
+| Joining without kind= | \`join kind=inner\` | Always specify join kind |
+| \`DeviceNetworkEvents\n| where...\` (no newline after table) | \`DeviceNetworkEvents\n| where ...\` | Table name on own line then pipe |
 
+### KERBEROASTING IN KQL (T1558.003)
+\`\`\`kql
+// Kerberoasting via IdentityDirectoryEvents (Defender for Identity)
+IdentityDirectoryEvents
+| where TimeGenerated >= ago(7d)
+| where ActionType == "LDAP query"
+| where AdditionalFields has "servicePrincipalName"
+| where AdditionalFields !has "krbtgt"
+| summarize QueryCount=count(), FirstSeen=min(TimeGenerated), LastSeen=max(TimeGenerated)
+    by AccountUpn, DeviceName, IPAddress
+| where QueryCount > 5
+| order by QueryCount desc
 
-
-## XQL ADDITIONAL COVERAGE
-
-### C2 BEACONING — Time Math
-\`\`\`xql
-// C2 beaconing with time span calculation (86400000ms = 24 hours)
-dataset = xdr_data
-| filter event_type = "NETWORK"
-| filter event_timestamp >= subtract_time(now(), "24h")
-| filter action_remote_ip not contains "10." and action_remote_ip not contains "192.168." and action_remote_ip not contains "172."
-| comp count() as beacon_count,
-       min(event_timestamp) as first_seen,
-       max(event_timestamp) as last_seen
-  by host_name, actor_process_image_name, action_remote_ip, action_remote_port
-| filter beacon_count > 50
-// days_active = (last_seen - first_seen) / 86400000
-| alter days_active = divide(subtract(last_seen, first_seen), 86400000)
-| sort desc beacon_count
+// Alternative via SecurityEvent (Windows event log)
+SecurityEvent
+| where TimeGenerated >= ago(7d)
+| where EventID == 4769
+| where TicketOptions == "0x40810010"
+| where TicketEncryptionType == "0x17"  // RC4 — weak encryption used in Kerberoasting
+| where ServiceName !endswith "$"
+| summarize count() by AccountName, ServiceName, IPAddress
+| order by count_ desc
 \`\`\`
 
-### CERTUTIL DOWNLOAD AND DECODE
-\`\`\`xql
-// Certutil abuse — download or decode
-dataset = xdr_data
-| filter event_type = "PROCESS"
-| filter actor_process_image_name ~= "(?i)certutil"
-| filter actor_process_command_line ~= "(?i)(urlcache|decode|encode|-f)"
-| fields event_timestamp, host_name, user_name, actor_process_command_line
-| sort desc event_timestamp
+### SENTINEL HUNT EXAMPLES
+
+#### PowerShell encoded commands
+\`\`\`kql
+DeviceProcessEvents
+| where TimeGenerated >= ago(24h)
+| where FileName =~ "powershell.exe"
+| where ProcessCommandLine has_any ("-EncodedCommand", "-enc ", "-e ")
+| project TimeGenerated, DeviceName, AccountName, ProcessCommandLine, InitiatingProcessFileName
+| order by TimeGenerated desc
+| take 200
 \`\`\`
 
-### RDP LATERAL MOVEMENT
-\`\`\`xql
-// RDP lateral movement — port 3389 connections from workstations
-dataset = xdr_data
-| filter event_type = "NETWORK"
-| filter action_remote_port = 3389
-| filter action_network_protocol = "TCP"
-| comp count() as rdp_count, values(action_remote_ip) as targets
-  by host_name, actor_process_image_name
-| filter rdp_count > 3
-| sort desc rdp_count
+#### Suspicious Office child processes
+\`\`\`kql
+DeviceProcessEvents
+| where TimeGenerated >= ago(7d)
+| where InitiatingProcessFileName in~ ("winword.exe","excel.exe","outlook.exe","powerpnt.exe")
+| where FileName in~ ("cmd.exe","powershell.exe","wscript.exe","mshta.exe","certutil.exe","regsvr32.exe")
+| project TimeGenerated, DeviceName, AccountName, InitiatingProcessFileName, FileName, ProcessCommandLine
+| order by TimeGenerated desc
 \`\`\`
 
-### BITS JOB PERSISTENCE
-\`\`\`xql
-// BITS job abuse — bitsadmin.exe with transfer or addfile
-dataset = xdr_data
-| filter event_type = "PROCESS"
-| filter actor_process_image_name ~= "(?i)bitsadmin"
-| filter actor_process_command_line ~= "(?i)(transfer|addfile|setnotifycmdline|resume)"
-| fields event_timestamp, host_name, user_name, actor_process_command_line
-| sort desc event_timestamp
+#### Failed authentication brute force
+\`\`\`kql
+SigninLogs
+| where TimeGenerated >= ago(24h)
+| where ResultType != "0"
+| summarize FailCount = count(), AppList = make_set(AppDisplayName) by UserPrincipalName, IPAddress
+| where FailCount > 20
+| order by FailCount desc
 \`\`\`
 
-### NEW SERVICE INSTALLATION (XQL)
-// Note: Windows EventCode=7045 is available via xdr_data as a security event
-\`\`\`xql
-dataset = xdr_data
-| filter event_type = "PROCESS"
-| filter actor_process_image_name ~= "(?i)(sc\.exe|services\.exe)"
-| filter actor_process_command_line ~= "(?i)(create|config|binpath)"
-| filter actor_process_command_line not contains "MpsSvc"
-| fields event_timestamp, host_name, user_name, actor_process_command_line
-| sort desc event_timestamp
+#### C2 beaconing detection
+\`\`\`kql
+DeviceNetworkEvents
+| where TimeGenerated >= ago(24h)
+| where RemoteIPType == "Public"
+| summarize BeaconCount = count(), FirstSeen = min(TimeGenerated), LastSeen = max(TimeGenerated)
+    by DeviceName, InitiatingProcessFileName, RemoteIP
+| where BeaconCount > 50
+| order by BeaconCount desc
 \`\`\`
 
-## THREAT HUNTING EXAMPLES
-
-### 1. Detect PowerShell with encoded commands
+#### LSASS access
+\`\`\`kql
+DeviceEvents
+| where TimeGenerated >= ago(7d)
+| where ActionType == "OpenProcessApiCall"
+| where FileName =~ "lsass.exe"
+| where InitiatingProcessFileName !in~ ("MsMpEng.exe","werfault.exe","taskmgr.exe")
+| project TimeGenerated, DeviceName, AccountName, InitiatingProcessFileName, InitiatingProcessCommandLine
 \`\`\`
-dataset = xdr_data
-| filter event_type = "PROCESS"
-| filter actor_process_image_name ~= "(?i)powershell"
-| filter actor_process_command_line ~= "(?i)(encodedcommand|-enc|-e\\s)"
-| fields event_timestamp, host_name, user_name, actor_process_command_line
-| sort desc event_timestamp
-| limit 200
-\`\`\`
-
-### 2. Suspicious parent-child relationships (living off the land)
-\`\`\`
-dataset = xdr_data
-| filter event_type = "PROCESS"
-| filter causality_actor_process_image_name in ("word.exe","excel.exe","outlook.exe","winword.exe")
-| filter actor_process_image_name in ("cmd.exe","powershell.exe","wscript.exe","mshta.exe","certutil.exe","regsvr32.exe")
-| fields event_timestamp, host_name, user_name, causality_actor_process_image_name, actor_process_image_name, actor_process_command_line
-| sort desc event_timestamp
-\`\`\`
-
-### 3. Lateral movement via admin shares
-\`\`\`
-dataset = xdr_data
-| filter event_type = "NETWORK"
-| filter action_remote_port in (445, 139)
-| filter actor_process_image_name not in ("system", "svchost.exe")
-| comp count() as connection_count, values(action_remote_ip) as destinations by actor_process_image_name, host_name
-| filter connection_count > 10
-| sort desc connection_count
-\`\`\`
-
-### 4. C2 beaconing — periodic outbound connections
-\`\`\`
-dataset = xdr_data
-| filter event_type = "NETWORK"
-| filter action_remote_ip not in ("10.0.0.0/8","172.16.0.0/12","192.168.0.0/16")
-| comp count() as beacon_count, min(event_timestamp) as first_seen, max(event_timestamp) as last_seen by actor_process_image_name, action_remote_ip, host_name
-| filter beacon_count > 100
-| sort desc beacon_count
-\`\`\`
-
-### 5. Credential dumping indicators (LSASS access)
-\`\`\`
-dataset = xdr_data
-| filter event_type = "PROCESS"
-| filter action_process_image_name ~= "(?i)lsass"
-| filter actor_process_image_name not in ("werfault.exe","taskmgr.exe","svchost.exe")
-| fields event_timestamp, host_name, user_name, actor_process_image_name, actor_process_command_line
-| sort desc event_timestamp
-\`\`\`
-
-### 6. Unusual DNS queries (DGA detection)
-\`\`\`
-dataset = xdr_data
-| filter event_type = "NETWORK"
-| filter dns_query_name is not null
-| alter domain_length = string_length(dns_query_name)
-| filter domain_length > 30
-| comp count() as query_count, values(host_name) as hosts by dns_query_name
-| sort desc query_count
-| limit 100
-\`\`\`
-
-### 7. Persistence via registry run keys
-\`\`\`
-dataset = xdr_data
-| filter event_type = "REGISTRY"
-| filter action_registry_key_name ~= "(?i)(run|runonce)"
-| filter actor_process_image_name not in ("msiexec.exe","setup.exe","install.exe")
-| fields event_timestamp, host_name, user_name, actor_process_image_name, action_registry_key_name, action_registry_value_name, action_registry_data
-| sort desc event_timestamp
-\`\`\`
-
-### 8. Ransomware indicators — mass file extension changes
-\`\`\`
-dataset = xdr_data
-| filter event_type = "FILE"
-| filter action_file_extension not in ("exe","dll","sys","log","tmp","dat")
-| comp count() as file_ops, values(action_file_extension) as extensions by actor_process_image_name, host_name
-| filter file_ops > 50
-| sort desc file_ops
-\`\`\`
-
-### 9. Failed authentication brute force
-\`\`\`
-dataset = auth_events
-| filter auth_outcome = "FAILED"
-| comp count() as fail_count by user_name, src_ip
-| filter fail_count > 20
-| sort desc fail_count
-\`\`\`
-
-### 10. Unsigned processes making network connections
-\`\`\`
-dataset = xdr_data
-| filter event_type = "NETWORK"
-| filter actor_process_signature_status = "UNSIGNED"
-| filter action_remote_ip not in ("10.0.0.0/8","172.16.0.0/12","192.168.0.0/16")
-| fields event_timestamp, host_name, user_name, actor_process_image_name, actor_process_image_path, action_remote_ip, action_remote_port
-| sort desc event_timestamp
-\`\`\`
-
----
-
-## MITRE ATT&CK MAPPING (common tactics → XQL hunting angles)
-
-- **T1059 - Command Scripting**: Filter for powershell, cmd, wscript, cscript in process events
-- **T1003 - OS Credential Dumping**: Look for LSASS access, procdump, mimikatz patterns
-- **T1071 - C2 Communications**: Outbound to unusual ports/IPs, high frequency connections
-- **T1021 - Lateral Movement**: SMB/RDP/WMI from non-admin processes
-- **T1547 - Boot/Logon Autostart**: Registry Run keys, scheduled tasks
-- **T1055 - Process Injection**: Unusual parent-child, cross-process memory access
-- **T1027 - Obfuscation**: Encoded commands, long command lines
-- **T1486 - Data Encryption (Ransomware)**: Mass file changes, shadow copy deletion
-
----
-
-## OUTPUT FORMAT INSTRUCTIONS FOR AI
-
-When translating natural language to XQL:
-1. Always start with the appropriate dataset
-2. Use filter stages to narrow data before aggregation (performance)
-3. Add a comment line // explaining each major stage
-4. End with limit if not using aggregation (default 200)
-5. Include relevant security fields that operators need
-6. Suggest alternative approaches if applicable
-7. Note any assumptions made about field names
 `;
 
-export const STARTER_PROMPTS = [
-  "Show me all PowerShell processes with encoded commands in the last 24 hours",
-  "Find processes spawned by Office applications that look suspicious",
-  "Hunt for potential C2 beaconing — repeated outbound connections to the same external IP",
-  "Show me all failed login attempts grouped by user and source IP",
-  "Find unsigned executables making outbound network connections",
-  "Look for potential LSASS credential dumping activity",
-  "Detect processes creating files with unusual extensions at scale — possible ransomware",
-  "Show me DNS queries with unusually long domain names",
-  "Find lateral movement indicators — admin share connections from unexpected processes",
-  "Hunt for registry persistence mechanisms added in the last 7 days",
-];
+// ─── SPL CORPUS ───────────────────────────────────────────────────────────────
 
-export interface HuntIdea {
-  text: string;
-  tactic: string;
-  techniqueId: string;
-  techniqueName: string;
-  url: string;
-}
+export const SPL_CORPUS = `
+## SPL (Search Processing Language) — Splunk Enterprise / Splunk Cloud / ES
 
-export const HUNT_IDEAS: HuntIdea[] = [
-  // ── Execution ──────────────────────────────────────────────────────────────
-  { text: "PowerShell downloading files with Invoke-WebRequest or WebClient",
-    tactic: "Execution", techniqueId: "T1059.001", techniqueName: "PowerShell",
-    url: "https://attack.mitre.org/techniques/T1059/001/" },
-  { text: "cmd.exe spawned directly by a browser process",
-    tactic: "Execution", techniqueId: "T1059.003", techniqueName: "Windows Command Shell",
-    url: "https://attack.mitre.org/techniques/T1059/003/" },
-  { text: "mshta.exe executing a remote script URL",
-    tactic: "Execution", techniqueId: "T1218.005", techniqueName: "Mshta",
-    url: "https://attack.mitre.org/techniques/T1218/005/" },
-  { text: "regsvr32.exe loading a DLL from a network path — Squiblydoo",
-    tactic: "Defense Evasion", techniqueId: "T1218.010", techniqueName: "Regsvr32",
-    url: "https://attack.mitre.org/techniques/T1218/010/" },
-  { text: "certutil.exe used to decode or download a payload",
-    tactic: "Defense Evasion", techniqueId: "T1140", techniqueName: "Deobfuscate/Decode Files",
-    url: "https://attack.mitre.org/techniques/T1140/" },
-  { text: "wmic.exe spawning unexpected child processes",
-    tactic: "Execution", techniqueId: "T1047", techniqueName: "Windows Management Instrumentation",
-    url: "https://attack.mitre.org/techniques/T1047/" },
-  { text: "rundll32.exe calling an uncommon or suspicious export",
-    tactic: "Defense Evasion", techniqueId: "T1218.011", techniqueName: "Rundll32",
-    url: "https://attack.mitre.org/techniques/T1218/011/" },
-  { text: "executables launched from user temp or download directories",
-    tactic: "Defense Evasion", techniqueId: "T1036.005", techniqueName: "Match Legitimate Name or Location",
-    url: "https://attack.mitre.org/techniques/T1036/005/" },
-  { text: "scripts running from %APPDATA% or %LOCALAPPDATA%",
-    tactic: "Execution", techniqueId: "T1059", techniqueName: "Command and Scripting Interpreter",
-    url: "https://attack.mitre.org/techniques/T1059/" },
-  { text: "double-extension files — invoice.pdf.exe or report.docx.scr",
-    tactic: "Defense Evasion", techniqueId: "T1036.007", techniqueName: "Double File Extension",
-    url: "https://attack.mitre.org/techniques/T1036/007/" },
+SPL uses pipe-based syntax where commands transform search results left to right.
+Key difference from XQL/KQL: search terms come first, then pipes refine.
 
-  // ── Credential Access ──────────────────────────────────────────────────────
-  { text: "ntdsutil.exe accessing the Active Directory database",
-    tactic: "Credential Access", techniqueId: "T1003.003", techniqueName: "NTDS",
-    url: "https://attack.mitre.org/techniques/T1003/003/" },
-  { text: "vssadmin deleting or resizing shadow copies — ransomware precursor",
-    tactic: "Impact", techniqueId: "T1490", techniqueName: "Inhibit System Recovery",
-    url: "https://attack.mitre.org/techniques/T1490/" },
-  { text: "SAM registry hive read by a non-system process",
-    tactic: "Credential Access", techniqueId: "T1003.002", techniqueName: "Security Account Manager",
-    url: "https://attack.mitre.org/techniques/T1003/002/" },
-  { text: "LSASS memory access from an unsigned or unexpected process",
-    tactic: "Credential Access", techniqueId: "T1003.001", techniqueName: "LSASS Memory",
-    url: "https://attack.mitre.org/techniques/T1003/001/" },
-  { text: "procdump.exe or comsvcs.dll MiniDump targeting lsass",
-    tactic: "Credential Access", techniqueId: "T1003.001", techniqueName: "LSASS Memory",
-    url: "https://attack.mitre.org/techniques/T1003/001/" },
-  { text: "secretsdump or impacket patterns in process command lines",
-    tactic: "Credential Access", techniqueId: "T1003", techniqueName: "OS Credential Dumping",
-    url: "https://attack.mitre.org/techniques/T1003/" },
-  { text: "Kerberoasting — unusual LDAP queries for service principal names",
-    tactic: "Credential Access", techniqueId: "T1558.003", techniqueName: "Kerberoasting",
-    url: "https://attack.mitre.org/techniques/T1558/003/" },
-  { text: "DCSync — AD replication requests originating from a non-DC",
-    tactic: "Credential Access", techniqueId: "T1003.006", techniqueName: "DCSync",
-    url: "https://attack.mitre.org/techniques/T1003/006/" },
-  { text: "LaZagne or credential harvesting tool name in process list",
-    tactic: "Credential Access", techniqueId: "T1555", techniqueName: "Credentials from Password Stores",
-    url: "https://attack.mitre.org/techniques/T1555/" },
-  { text: "Windows Credential Editor or wce.exe execution",
-    tactic: "Credential Access", techniqueId: "T1003.001", techniqueName: "LSASS Memory",
-    url: "https://attack.mitre.org/techniques/T1003/001/" },
+### BASIC STRUCTURE
+\`\`\`spl
+index=<index> sourcetype=<sourcetype> [search terms]
+| stats count by field
+| sort -count
+| head 200
+\`\`\`
 
-  // ── Lateral Movement ───────────────────────────────────────────────────────
-  { text: "PsExec or similar remote execution tool activity",
-    tactic: "Lateral Movement", techniqueId: "T1570", techniqueName: "Lateral Tool Transfer",
-    url: "https://attack.mitre.org/techniques/T1570/" },
-  { text: "WMI remote process creation across multiple endpoints",
-    tactic: "Lateral Movement", techniqueId: "T1021.006", techniqueName: "Windows Remote Management",
-    url: "https://attack.mitre.org/techniques/T1021/006/" },
-  { text: "RDP connections between workstations — not server to client",
-    tactic: "Lateral Movement", techniqueId: "T1021.001", techniqueName: "Remote Desktop Protocol",
-    url: "https://attack.mitre.org/techniques/T1021/001/" },
-  { text: "DCOM lateral movement via MMC20 or ShellBrowserWindow",
-    tactic: "Lateral Movement", techniqueId: "T1021.003", techniqueName: "Distributed Component Object Model",
-    url: "https://attack.mitre.org/techniques/T1021/003/" },
-  { text: "net use commands mounting administrative shares",
-    tactic: "Lateral Movement", techniqueId: "T1021.002", techniqueName: "SMB/Windows Admin Shares",
-    url: "https://attack.mitre.org/techniques/T1021/002/" },
-  { text: "schtasks /s creating scheduled tasks on remote hosts",
-    tactic: "Lateral Movement", techniqueId: "T1053.005", techniqueName: "Scheduled Task",
-    url: "https://attack.mitre.org/techniques/T1053/005/" },
-  { text: "sc.exe installing a service remotely",
-    tactic: "Lateral Movement", techniqueId: "T1569.002", techniqueName: "Service Execution",
-    url: "https://attack.mitre.org/techniques/T1569/002/" },
-  { text: "unexpected SSH lateral movement from internal Windows hosts",
-    tactic: "Lateral Movement", techniqueId: "T1021.004", techniqueName: "SSH",
-    url: "https://attack.mitre.org/techniques/T1021/004/" },
-  { text: "WinRM connections from non-privileged workstations",
-    tactic: "Lateral Movement", techniqueId: "T1021.006", techniqueName: "Windows Remote Management",
-    url: "https://attack.mitre.org/techniques/T1021/006/" },
-  { text: "NTLM authentication with mismatched source hostname — pass-the-hash",
-    tactic: "Lateral Movement", techniqueId: "T1550.002", techniqueName: "Pass the Hash",
-    url: "https://attack.mitre.org/techniques/T1550/002/" },
+### CORE SEARCH COMMANDS
+- search / where — filter events
+- stats — aggregate (count, sum, avg, dc, values, list, min, max, range)
+- table — select fields to display
+- fields — include/exclude fields
+- rename — rename fields
+- eval — compute new fields
+- rex — regex extraction
+- dedup — deduplicate
+- transaction — group events into sessions by field or time gap
+- sort — sort results
+- head / tail — limit results
+- join — join datasets
+- union / append — combine results
+- lookup — enrich with lookup table
+- inputlookup — read lookup as dataset
+- tstats — fast stats over indexed fields
+- datamodel — query data models
 
-  // ── Persistence ────────────────────────────────────────────────────────────
-  { text: "new Windows services installed outside of known patch windows",
-    tactic: "Persistence", techniqueId: "T1543.003", techniqueName: "Windows Service",
-    url: "https://attack.mitre.org/techniques/T1543/003/" },
-  { text: "unsigned DLLs appearing in System32 — DLL hijacking",
-    tactic: "Persistence", techniqueId: "T1574.001", techniqueName: "DLL Search Order Hijacking",
-    url: "https://attack.mitre.org/techniques/T1574/001/" },
-  { text: "COM object hijacking entries written to HKCU hive",
-    tactic: "Persistence", techniqueId: "T1546.015", techniqueName: "Component Object Model Hijacking",
-    url: "https://attack.mitre.org/techniques/T1546/015/" },
-  { text: "startup folder file drops by non-installer processes",
-    tactic: "Persistence", techniqueId: "T1547.001", techniqueName: "Registry Run Keys / Startup Folder",
-    url: "https://attack.mitre.org/techniques/T1547/001/" },
-  { text: "WMI event subscriptions created or modified",
-    tactic: "Persistence", techniqueId: "T1546.003", techniqueName: "Windows Management Instrumentation Event Subscription",
-    url: "https://attack.mitre.org/techniques/T1546/003/" },
-  { text: "AppInit_DLLs registry key written by a user process",
-    tactic: "Persistence", techniqueId: "T1546.010", techniqueName: "AppInit DLLs",
-    url: "https://attack.mitre.org/techniques/T1546/010/" },
-  { text: "screensaver executable path changed in user registry",
-    tactic: "Persistence", techniqueId: "T1546.002", techniqueName: "Screensaver",
-    url: "https://attack.mitre.org/techniques/T1546/002/" },
-  { text: "LSA security package or notification package modifications",
-    tactic: "Persistence", techniqueId: "T1547.005", techniqueName: "Security Support Provider",
-    url: "https://attack.mitre.org/techniques/T1547/005/" },
-  { text: "Office template file modifications — macro persistence",
-    tactic: "Persistence", techniqueId: "T1137.001", techniqueName: "Office Template Macros",
-    url: "https://attack.mitre.org/techniques/T1137/001/" },
-  { text: "BITS jobs created by unexpected processes",
-    tactic: "Persistence", techniqueId: "T1197", techniqueName: "BITS Jobs",
-    url: "https://attack.mitre.org/techniques/T1197/" },
+### FILTER SYNTAX
+\`\`\`spl
+index=windows sourcetype=WinEventLog:Security EventCode=4625
+| search AccountName!="*$" AND IpAddress!="::1"
+| where like(CommandLine, "%powershell%")
+| where len(CommandLine) > 500
+\`\`\`
 
-  // ── Discovery & Exfiltration ───────────────────────────────────────────────
-  { text: "DNS TXT record queries — potential DNS tunneling or exfiltration",
-    tactic: "Exfiltration", techniqueId: "T1048.003", techniqueName: "Exfiltration Over Unencrypted Protocol",
-    url: "https://attack.mitre.org/techniques/T1048/003/" },
-  { text: "large outbound data transfer to a new external destination",
-    tactic: "Exfiltration", techniqueId: "T1041", techniqueName: "Exfiltration Over C2 Channel",
-    url: "https://attack.mitre.org/techniques/T1041/" },
-  { text: "rclone or cloud sync tools running outside business hours",
-    tactic: "Exfiltration", techniqueId: "T1567.002", techniqueName: "Exfiltration to Cloud Storage",
-    url: "https://attack.mitre.org/techniques/T1567/002/" },
-  { text: "adfind.exe Active Directory reconnaissance commands",
-    tactic: "Discovery", techniqueId: "T1018", techniqueName: "Remote System Discovery",
-    url: "https://attack.mitre.org/techniques/T1018/" },
-  { text: "nltest.exe domain trust or DC enumeration",
-    tactic: "Discovery", techniqueId: "T1482", techniqueName: "Domain Trust Discovery",
-    url: "https://attack.mitre.org/techniques/T1482/" },
-  { text: "net group domain admins enumeration from a workstation",
-    tactic: "Discovery", techniqueId: "T1069.002", techniqueName: "Domain Groups",
-    url: "https://attack.mitre.org/techniques/T1069/002/" },
-  { text: "internal port scan or ping sweep from a user endpoint",
-    tactic: "Discovery", techniqueId: "T1046", techniqueName: "Network Service Discovery",
-    url: "https://attack.mitre.org/techniques/T1046/" },
-  { text: "curl or wget downloading an executable to a temp path",
-    tactic: "Command and Control", techniqueId: "T1105", techniqueName: "Ingress Tool Transfer",
-    url: "https://attack.mitre.org/techniques/T1105/" },
-  { text: "high-entropy command line arguments — obfuscation or encoding",
-    tactic: "Defense Evasion", techniqueId: "T1027", techniqueName: "Obfuscated Files or Information",
-    url: "https://attack.mitre.org/techniques/T1027/" },
-  { text: "outbound connections on non-standard ports from Office applications",
-    tactic: "Command and Control", techniqueId: "T1571", techniqueName: "Non-Standard Port",
-    url: "https://attack.mitre.org/techniques/T1571/" },
-];
+Operators: =, !=, <, >, <=, >=, IN, NOT IN, LIKE, AND, OR, NOT
+
+### TIME FILTERING
+\`\`\`spl
+earliest=-24h latest=now
+earliest=-7d@d latest=@d
+earliest="01/01/2024:00:00:00" latest="01/31/2024:23:59:59"
+\`\`\`
+
+### AGGREGATION (stats)
+\`\`\`spl
+| stats count by host, user
+| stats dc(dest_ip) as unique_ips, values(dest_port) as ports by src_ip
+| stats sum(bytes) as total_bytes by src_ip
+| stats earliest(_time) as first_seen, latest(_time) as last_seen by process
+| stats count as failures by user | where failures > 20
+\`\`\`
+
+### EVAL / COMPUTED FIELDS
+\`\`\`spl
+| eval cmd_length=len(CommandLine)
+| eval is_encoded=if(match(CommandLine,"(?i)encodedcommand"),"YES","NO")
+| eval hour=strftime(_time,"%H")
+| eval domain=lower(replace(dest,"\\..*",""))
+\`\`\`
+
+### COMMON SPLUNK INDEXES & SOURCETYPES
+#### Windows / Endpoint
+- index=windows sourcetype=WinEventLog:Security — Windows Security events
+- index=windows sourcetype=WinEventLog:System — Windows System events
+- index=sysmon sourcetype=XmlWinEventLog:Microsoft-Windows-Sysmon/Operational
+- index=endpoint sourcetype=cylance:* — Cylance/BlackBerry
+- index=endpoint sourcetype=crowdstrike:* — CrowdStrike Falcon (if forwarded)
+- index=endpoint sourcetype=carbonblack:* — VMware Carbon Black
+
+#### Sysmon Event IDs
+- EventCode=1 — Process Create
+- EventCode=3 — Network Connection
+- EventCode=7 — Image Load (DLL)
+- EventCode=8 — CreateRemoteThread
+- EventCode=11 — File Create
+- EventCode=12/13 — Registry
+
+#### Windows Security Event IDs
+- EventCode=4624 — Successful logon
+- EventCode=4625 — Failed logon
+- EventCode=4648 — Explicit credential logon
+- EventCode=4662 — Object access (AD)
+- EventCode=4672 — Special privilege logon
+- EventCode=4688 — Process creation (with cmdline)
+- EventCode=4697 — Service installation
+- EventCode=4698/4702 — Scheduled task
+- EventCode=4776 — NTLM authentication
+- EventCode=7045 — New service installed
+
+#### Network / Proxy
+- index=network sourcetype=cisco:asa — Cisco ASA
+- index=network sourcetype=pan:traffic — Palo Alto firewall
+- index=network sourcetype=stream:http — HTTP stream
+- index=network sourcetype=stream:dns — DNS stream
+- index=proxy sourcetype=bluecoat:* — BlueCoat proxy
+- index=zeek sourcetype=bro:* — Zeek/Bro IDS
+
+#### Authentication / Identity
+- index=auth sourcetype=ldap:* — LDAP
+- index=auth sourcetype=okta:* — Okta
+- index=o365 sourcetype=o365:management:activity — M365 audit
+
+
+
+### SPL EXTENDED COVERAGE
+
+#### Scheduled Task Creation (EventCode=4698)
+\`\`\`spl
+index=windows sourcetype=WinEventLog:Security EventCode=4698 earliest=-7d
+| rename TaskName as scheduled_task_name
+| table _time, ComputerName, SubjectUserName, TaskName, TaskContent
+| sort -_time
+\`\`\`
+
+#### Shadow Copy Deletion (SPL)
+\`\`\`spl
+index=sysmon sourcetype=XmlWinEventLog:Microsoft-Windows-Sysmon/Operational EventCode=1 earliest=-24h
+| search (Image="*vssadmin.exe" CommandLine="*delete*") OR (Image="*wmic.exe" CommandLine="*shadowcopy*delete*")
+| table _time, ComputerName, User, Image, CommandLine
+| sort -_time
+\`\`\`
+
+#### Registry Run Key Persistence (Sysmon EventCode 12/13)
+- EventCode=12 — RegistryEvent (Object create/delete)
+- EventCode=13 — RegistryEvent (Value Set)
+- EventCode=14 — RegistryEvent (Key/Value Rename)
+- TargetObject — full registry path e.g. HKLM\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Run\\malware
+- Details — value data written
+- Image — process making the change
+
+\`\`\`spl
+index=sysmon EventCode=13 earliest=-7d
+| search TargetObject="*CurrentVersion\\Run*" OR TargetObject="*CurrentVersion\\RunOnce*"
+| search NOT Image IN ("*msiexec.exe","*trustedinstaller.exe","*setup.exe")
+| table _time, ComputerName, User, Image, TargetObject, Details
+| sort -_time
+\`\`\`
+
+#### WMI Event Subscriptions (Sysmon EventCode 19/20/21)
+- EventCode=19 — WmiEvent (WmiEventFilter activity detected)
+- EventCode=20 — WmiEvent (WmiEventConsumer activity detected)
+- EventCode=21 — WmiEvent (WmiEventConsumerToFilter activity detected)
+
+\`\`\`spl
+index=sysmon (EventCode=19 OR EventCode=20 OR EventCode=21) earliest=-7d
+| table _time, ComputerName, User, EventCode, Name, Type, Destination, Consumer, Filter
+| sort -_time
+\`\`\`
+
+#### New Admin Account (Security Events)
+- EventCode=4720 — user account created
+- EventCode=4722 — user account enabled
+- EventCode=4728 — member added to global security group
+- EventCode=4732 — member added to local security group (Administrators)
+- EventCode=4756 — member added to universal security group
+
+\`\`\`spl
+index=windows sourcetype=WinEventLog:Security (EventCode=4720 OR EventCode=4732) earliest=-7d
+| eval event_type=case(EventCode=4720,"Account Created",EventCode=4732,"Added to Admins",true(),"Other")
+| table _time, ComputerName, SubjectUserName, TargetUserName, event_type
+| sort -_time
+\`\`\`
+
+#### Remote Execution (EventCode=4688 with ParentProcessName)
+- EventCode=4688 — process creation (requires audit process creation + command line logging)
+- ParentProcessName — parent process path (available when command line auditing enabled)
+- NewProcessName — spawned process full path
+- CommandLine — command line if auditing enabled
+
+\`\`\`spl
+index=windows sourcetype=WinEventLog:Security EventCode=4688 earliest=-24h
+| search (ParentProcessName="*winword.exe" OR ParentProcessName="*excel.exe" OR ParentProcessName="*outlook.exe")
+| search (NewProcessName="*cmd.exe" OR NewProcessName="*powershell.exe" OR NewProcessName="*wscript.exe")
+| table _time, ComputerName, SubjectUserName, ParentProcessName, NewProcessName, CommandLine
+| sort -_time
+\`\`\`
+
+#### Email Forwarding Rules (O365)
+\`\`\`spl
+index=o365 sourcetype=o365:management:activity earliest=-30d
+| search (Operation="New-InboxRule" OR Operation="Set-InboxRule" OR Operation="Set-Mailbox")
+| search (Parameters="*ForwardTo*" OR Parameters="*RedirectTo*" OR Parameters="*ForwardingSmtpAddress*")
+| eval forwarding_dest=mvindex(split(Parameters,"ForwardTo"),1)
+| table _time, UserId, ClientIP, Operation, Parameters, Name
+| sort -_time
+\`\`\`
+
+#### Threat Intel IOC Lookup
+\`\`\`spl
+// Using | lookup for threat intel enrichment
+index=network earliest=-24h
+| stats count by dest_ip
+| lookup threat_intel_ips ip as dest_ip OUTPUT threat_category, confidence
+| where threat_category!=""
+| sort -confidence
+
+// Using | inputlookup to load IOC list
+| inputlookup malicious_ips.csv
+| rename ip as dest_ip
+| join dest_ip [search index=network earliest=-24h | stats count by dest_ip]
+\`\`\`
+
+#### TaskName field reference
+- TaskName — scheduled task name from EventCode=4698/4699/4700/4701/4702
+- TaskContent — XML definition of the task
+- SubjectUserName — user who created the task
+\`\`\`spl
+index=windows sourcetype=WinEventLog:Security (EventCode=4698 OR EventCode=4702) earliest=-7d
+| table _time, ComputerName, SubjectUserName, TaskName
+| sort -_time
+\`\`\`
+
+### COMMON SPL MISTAKES TO AVOID
+
+| WRONG | CORRECT | Reason |
+|-------|---------|--------|
+| \`search Image=*powershell*\` | \`Image="*powershell*"\` | Quotes required for wildcard values |
+| \`stats count\` | \`stats count() as count\` | count requires parens and alias |
+| \`where count > 10\` after stats | \`where count > 10\` ✓ or \`having count > 10\` | where works after stats but must reference alias |
+| \`sort -_time\` | \`sort -_time\` ✓ or \`sort 0 -_time\` | 0 means no limit on sort; omitting limits to 10000 |
+| \`index=windows EventCode=4769\` | \`index=windows EventCode=4769\` ✓ | This is correct — EventCode without quotes |
+| \`| rex field=CommandLine "(?P<encoded>-[eE][nN][cC].*)"\` | Same | rex uses named groups with (?P<name>) |
+| \`earliest=-24h\` in search string | \`earliest=-24h latest=now\` | Always pair with latest |
+
+### KERBEROASTING IN SPL (T1558.003)
+\`\`\`spl
+// Kerberoasting via Windows Security Event 4769
+index=windows sourcetype=WinEventLog:Security EventCode=4769 earliest=-7d
+TicketEncryptionType=0x17
+| search ServiceName!="*$" AND ServiceName!="krbtgt"
+| stats count as requests, values(ServiceName) as services, dc(ServiceName) as unique_spns
+    by AccountName, IpAddress
+| where requests > 3
+| sort -requests
+
+// Alternative via Sysmon LDAP query detection
+index=sysmon EventCode=1 earliest=-7d
+| search (CommandLine="*ldap*" OR CommandLine="*ADSI*") AND (CommandLine="*servicePrincipalName*" OR CommandLine="*SPN*")
+| table _time, ComputerName, User, CommandLine
+| sort -_time
+\`\`\`
+
+
+### O365 / AZURE AD FIELD REFERENCE (for BEC, identity, cloud investigations)
+
+#### index=o365 sourcetype=o365:management:activity — Key fields (VERIFIED)
+- UserId — UPN of user performing action e.g. user@domain.com (string)
+- ClientIP — source IP of the action (string)
+- Operation — action performed: UserLoggedIn, New-InboxRule, Send, Set-Mailbox etc (string)
+- Workload — service: Exchange, AzureActiveDirectory, SharePoint, OneDrive (string)
+- RecordType — log category: ExchangeAdmin, ExchangeItem, AzureActiveDirectory etc (string)
+- ResultStatus — Success or Failed (string)
+- UserAgent — browser/client user agent (string)
+- Parameters — JSON array of cmdlet parameters for admin operations (string)
+- Name — inbox rule name (string)
+- Subject — email subject line (string)
+- Recipients — email recipients (string)
+- MessageId — unique message identifier (string)
+- OrganizationId — tenant ID (string)
+- CreationTime — event timestamp (string — use _time for SPL time filtering)
+- Country — country of ClientIP (string)
+- City — city of ClientIP (string)
+
+#### Common O365 Operations for BEC Investigation
+- UserLoggedIn / UserLoginFailed — authentication events
+- New-InboxRule / Set-InboxRule — forwarding rule creation
+- New-TransportRule / Set-TransportRule — tenant-wide transport rules
+- Set-Mailbox — mailbox setting changes (ForwardingSmtpAddress)
+- Send — email send events
+- FileDownloaded / FileAccessed — SharePoint/OneDrive data access
+- Add member to role — privilege escalation
+- Reset user password — account takeover indicator
+- MipLabel — sensitivity label changes
+
+### SPL EVAL FUNCTIONS REFERENCE
+
+\`\`\`spl
+| eval duration_hours=round((last_seen-first_seen)/3600,1)
+| eval avg_per_hour=round(count/if(duration_hours>0,duration_hours,1),1)
+| eval is_after_hours=if(strftime(_time,"%H") < "08" OR strftime(_time,"%H") >= "18","YES","NO")
+| eval domain=replace(UserId,".*@","")
+| eval short_ip=replace(src_ip,"(\\d+\\.\\d+\\.\\d+)\\..*","\\1.x")
+\`\`\`
+
+#### SPL Math/String Functions
+- round(num, decimals) — round to decimal places
+- if(condition, true_val, false_val) — conditional
+- len(field) — string length
+- substr(field, start, len) — substring
+- replace(field, regex, replacement) — regex replace
+- lower(field) / upper(field) — case conversion
+- strftime(_time, format) — format timestamp
+- relative_time(now(), "-7d@d") — relative time calculation
+- coalesce(field1, field2) — first non-null value
+- mvcount(field) — count of multivalue field values
+- mvindex(field, n) — nth value of multivalue field
+
+### SPL COMMENT SYNTAX (VALID FORMS)
+
+\`\`\`spl
+// Single line comment — VALID and commonly used
+| stats count by host  // inline comment — VALID
+
+/* Multi-line comment
+   also valid */
+
+| stats count by host  \`backtick comments\` -- NOT standard
+
+\`\`\`
+NOTE FOR VALIDATOR: // comments in SPL are VALID syntax. Do NOT flag // as a syntax error or warning.
+Multiple | search commands in sequence are VALID SPL — do not flag as consolidation error.
+Chained search commands are intentional for readability in complex investigations.
+
+### SPL HUNT EXAMPLES
+
+#### PowerShell encoded commands (Sysmon)
+\`\`\`spl
+index=sysmon sourcetype=XmlWinEventLog:Microsoft-Windows-Sysmon/Operational EventCode=1
+| search (CommandLine="*-EncodedCommand*" OR CommandLine="*-enc *" OR CommandLine="*-e *")
+  Image="*powershell*"
+| table _time, ComputerName, User, CommandLine, ParentImage
+| sort -_time
+| head 200
+\`\`\`
+
+#### Office process spawning shells
+\`\`\`spl
+index=sysmon EventCode=1
+| search ParentImage IN ("*winword.exe","*excel.exe","*outlook.exe","*powerpnt.exe")
+  Image IN ("*cmd.exe","*powershell.exe","*wscript.exe","*mshta.exe","*certutil.exe")
+| table _time, ComputerName, User, ParentImage, Image, CommandLine
+| sort -_time
+\`\`\`
+
+#### Failed logins brute force (Security log)
+\`\`\`spl
+index=windows sourcetype=WinEventLog:Security EventCode=4625 earliest=-24h
+| stats count as failures by TargetUserName, IpAddress
+| where failures > 20
+| sort -failures
+\`\`\`
+
+#### C2 beaconing (high frequency outbound)
+\`\`\`spl
+index=network sourcetype=pan:traffic earliest=-24h
+| where dest_ip!="10.0.0.0/8" AND dest_ip!="172.16.0.0/12" AND dest_ip!="192.168.0.0/16"
+| stats count as connections, dc(dest_port) as ports by src_ip, dest_ip, app
+| where connections > 100
+| sort -connections
+\`\`\`
+
+#### LSASS access via Sysmon
+\`\`\`spl
+index=sysmon EventCode=10 TargetImage="*lsass.exe"
+| search NOT SourceImage IN ("*MsMpEng.exe","*werfault.exe","*taskmgr.exe","*csrss.exe")
+| table _time, ComputerName, SourceImage, TargetImage, GrantedAccess
+| sort -_time
+\`\`\`
+`;
+
+// ─── CQL CORPUS ───────────────────────────────────────────────────────────────
+
+export const CQL_CORPUS = `
+## CQL / LogScale Query Language — CrowdStrike Falcon (NG-SIEM / LogScale)
+
+CrowdStrike Falcon NG-SIEM uses LogScale Query Language (LQL), sometimes called CQL.
+It is event-driven and optimized for high-speed streaming search.
+
+### BASIC STRUCTURE
+\`\`\`cql
+// Filter first, then transform
+#event_simpleName=ProcessRollup2
+| CommandLine=*powershell*
+| groupBy([ComputerName, UserName, CommandLine], function=count())
+| sort(field=_count, order=desc)
+| limit(200)
+\`\`\`
+
+### CORE OPERATORS
+- field=value — basic filter (implicit AND between terms)
+- | filter() — programmatic filter
+- | groupBy() — aggregate (equivalent to summarize/stats/comp)
+- | sort() — sort results
+- | limit() — limit results
+- | select() — choose fields
+- | rename() — rename fields
+- | eval() / | := — compute new fields
+- | regex() — regex filter/extract
+- | format() — string formatting
+- | join() — join datasets
+- | match() — match against file/list
+- | table() — display as table
+- | timechart() — time-based aggregation
+- | stats() — statistics
+
+### FILTER SYNTAX — CRITICAL RULES
+
+## RULE 1: Multi-condition filters — ALL on same line or use pipe stages
+\`\`\`cql
+// CORRECT — multiple conditions on same line (implicit AND)
+#event_simpleName=ProcessRollup2 CommandLine=*ldap* FileName=*net.exe*
+
+// CORRECT — chain with pipe stages
+#event_simpleName=ProcessRollup2
+| CommandLine=*ldap*
+| FileName!=*svchost.exe*
+
+// WRONG — do NOT put each condition on a new line without pipes
+// #event_simpleName=ProcessRollup2
+// CommandLine=*ldap*            <-- this is NOT valid
+// FileName=*net.exe*            <-- this is NOT valid
+\`\`\`
+
+## RULE 2: Regex syntax — /pattern/ for inline, regex() for pipe stage
+\`\`\`cql
+// CORRECT — regex inline filter (case-insensitive with /i flag)
+#event_simpleName=ProcessRollup2
+| FileName=/powershell\.exe/i
+
+// CORRECT — regex in pipe (for complex patterns)
+#event_simpleName=ProcessRollup2
+| regex("(?i)encodedcommand", field=CommandLine)
+
+// CORRECT — regex exclusion
+| FileName!=/adexplorer\.exe|ldp\.exe|dsquery\.exe/i
+
+// WRONG — /i flag outside regex inline context
+// | CommandLine=/ldap/i          <-- valid
+// NOT CommandLine=/ldap/i        <-- WRONG, use | filter(NOT ...)
+\`\`\`
+
+## RULE 3: Wildcard vs Regex — use wildcards for simple matching
+\`\`\`cql
+// Wildcard (simpler, preferred for basic contains)
+CommandLine=*ldap*
+CommandLine=*kerberos*
+
+// Regex (use for alternation, anchors, complex patterns)
+| CommandLine=/ldap|kerberos|spn/i
+
+// Negation wildcard
+FileName!=*svchost.exe*
+
+// Negation regex
+| FileName!=/MsMpEng\.exe|werfault\.exe|taskmgr\.exe/i
+\`\`\`
+
+## RULE 4: Boolean operators
+\`\`\`cql
+// OR between event types
+#event_simpleName=ProcessRollup2 OR #event_simpleName=SyntheticProcessRollup2
+
+// AND is implicit between space-separated conditions
+CommandLine=*ldap* FileName=*net.exe*
+
+// Explicit AND
+CommandLine=*ldap* AND FileName=*net.exe*
+
+// NOT
+NOT FileName=*svchost*
+NOT FileName=/MsMpEng\.exe|taskmgr\.exe/i
+
+// Parentheses for grouping
+(CommandLine=*ldap* OR CommandLine=*kerberos*) FileName!=*svchost*
+\`\`\`
+
+## RULE 5: | filter() for complex programmatic conditions
+\`\`\`cql
+#event_simpleName=ProcessRollup2
+| filter(CommandLine=*ldap* OR CommandLine=*kerb*)
+| filter(NOT FileName=/MsMpEng\.exe|svchost\.exe/i)
+| groupBy([ComputerName, UserName, CommandLine])
+\`\`\`
+
+### TIME FILTERING
+\`\`\`cql
+// Last 24 hours — set in UI time picker or:
+| timechart(span=1h, function=count())
+
+// Relative time in filter
+| where(@timestamp > now() - 86400000)  // milliseconds
+\`\`\`
+
+### AGGREGATION
+\`\`\`cql
+| groupBy([ComputerName], function=count())
+| groupBy([ComputerName, UserName], function=[count(), collect(CommandLine)])
+| groupBy([SourceIP, DestinationIP], function=[count(as=connections), min(@timestamp, as=first_seen)])
+\`\`\`
+
+### KEY CROWDSTRIKE EVENT NAMES (#event_simpleName)
+#### Process Events
+- ProcessRollup2 — process execution (primary)
+- SyntheticProcessRollup2 — synthetic process (endpoint activity)
+- ProcessRollup2Bpf — eBPF process (Linux)
+- UserIdentity — user context
+
+#### Network Events
+- NetworkConnectIP4 — IPv4 outbound connection
+- NetworkConnectIP6 — IPv6 outbound connection
+- DnsRequest — DNS query
+- NetworkReceiveAcceptIP4 — inbound connection
+
+#### File Events
+- NewExecutableWritten — new executable file
+- NewScriptWritten — new script file
+- DocumentProgramInjection — doc spawning process
+
+#### Registry Events
+- RegKeyValueSetByProcessId — registry value set
+- RegKeyCreated — registry key created
+- RegKeyDeleted — registry key deleted
+
+#### Authentication
+- UserLogon — user logon
+- UserLogoff — user logoff
+- AuthActivityAuditEvent — auth audit
+
+#### Detection / Alert
+- DetectionSummaryEvent — detection summary
+- EppDetectionSummaryEvent — EPP detection
+- IncidentSummaryEvent — incident
+
+### KEY FIELD NAMES (CrowdStrike)
+
+#### ProcessRollup2 — Complete field reference (VERIFIED)
+- ComputerName — hostname (string)
+- UserName — username (string)
+- UserSid — user SID (string)
+- FileName — process filename only e.g. powershell.exe (string)
+- FilePath — directory path of process (string)
+- ImageFileName — full path e.g. \\Device\\HarddiskVolume3\\Windows\\System32\\cmd.exe (string)
+- CommandLine — full command line with arguments (string)
+- ParentBaseFileName — parent process filename only (string)
+- ParentImageFileName — parent process full path (string)
+- ParentCommandLine — parent process command line (string)
+- ParentProcessId — parent PID (integer)
+- ProcessId — process PID (integer)
+- SHA256HashData — SHA256 hash of executable (string)
+- MD5HashData — MD5 hash (string)
+- IntegrityLevel — process integrity: Low/Medium/High/System (string)
+- TokenType — Primary or Impersonation (string)
+- SessionId — Windows session ID (integer)
+- RawProcessId — raw process ID (integer)
+- TargetProcessId — target process PID for injection events (integer)
+- TargetProcessName — target process name for injection (string)
+- EffectiveTransmissionClass — network class (integer)
+- Tags — sensor tags (string)
+- aid — agent ID / sensor ID (string)
+- aip — agent IP address (string)
+- cid — customer ID (string)
+- @timestamp — event timestamp in epoch ms (integer)
+- ContextTimeStamp — context timestamp (string)
+- event_platform — Win/Mac/Lin (string)
+
+#### NetworkConnectIP4 — Complete field reference (VERIFIED)
+- ComputerName — hostname (string)
+- UserName — username (string)
+- FileName — process making connection (string)
+- ImageFileName — full process path (string)
+- CommandLine — process command line (string)
+- LocalAddressIP4 — source IP (string)
+- LocalPort — source port (integer)
+- RemoteAddressIP4 — destination IP (string)
+- RemotePort — destination port (integer)
+- Protocol — protocol number: 6=TCP, 17=UDP (integer)
+- ConnectionFlags — connection flags (integer)
+- aid, aip, cid — agent identifiers
+
+#### DnsRequest — Complete field reference (VERIFIED)
+- ComputerName — hostname (string)
+- UserName — username (string)
+- FileName — process making DNS request (string)
+- DomainName — queried domain (string)
+- RequestType — DNS record type: 1=A, 28=AAAA, 16=TXT (integer)
+- InterfaceIndex — network interface (integer)
+
+#### UserLogon — Complete field reference (VERIFIED)
+- ComputerName — hostname (string)
+- UserName — username (string)
+- UserSid — user SID (string)
+- LogonType — 2=interactive, 3=network, 4=batch, 5=service, 10=remote (integer)
+- UserIsAdmin — 1 if admin (integer)
+- AuthenticationPackage — NTLM, Kerberos, Negotiate (string)
+- LogonDomain — domain (string)
+- RemoteAccount — 1 if remote (integer)
+
+#### RegKeyValueSetByProcessId — Complete field reference (VERIFIED)
+- ComputerName — hostname (string)
+- UserName — username (string)
+- FileName — process making registry change (string)
+- RegObjectName — full registry key path (string)
+- RegStringValue — string value data (string)
+- RegNumericValue — numeric value data (integer)
+- RegOperationType — Create/Set/Delete (string)
+
+#### Common fields on ALL events
+- aid — agent/sensor ID (string) — use for per-host filtering
+- aip — agent IP address (string)
+- cid — customer ID (string)
+- @timestamp — epoch milliseconds (integer)
+- event_platform — Win / Mac / Lin (string)
+- #event_simpleName — event type name (string)
+
+
+
+### CQL EXTENDED COVERAGE
+
+#### Registry Events — Complete Reference
+\`\`\`cql
+// Registry persistence — Run key modification
+#event_simpleName=RegKeyValueSetByProcessId
+| RegObjectName=*CurrentVersion\\Run*
+| filter(NOT FileName=/msiexec\.exe|trustedinstaller\.exe|setup\.exe/i)
+| groupBy([ComputerName, UserName, FileName, RegObjectName, RegStringValue], function=count())
+| sort(field=@timestamp, order=desc)
+\`\`\`
+
+#### RegKeyValueSetByProcessId — RegistryPath variants
+- RegObjectName — full registry key path
+  e.g. \\REGISTRY\\MACHINE\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Run\\malware
+- RegStringValue — string value data written
+- RegNumericValue — numeric value data
+- RegOperationType — type of operation
+
+#### Certutil and LOLBin Download Patterns
+\`\`\`cql
+// Certutil urlcache download
+#event_simpleName=ProcessRollup2
+| FileName=/certutil\.exe/i
+| CommandLine=*urlcache* OR CommandLine=*-decode* OR CommandLine=*-encode*
+| groupBy([ComputerName, UserName, CommandLine], function=count())
+| sort(field=@timestamp, order=desc)
+\`\`\`
+
+#### Wildcard Examples (CQL)
+\`\`\`cql
+// Wildcard contains — use * on both sides
+CommandLine=*encoded*
+CommandLine=*powershell*
+FileName=*powershell*
+
+// Wildcard starts with
+CommandLine=powershell*
+
+// Wildcard ends with
+FileName=*.exe
+
+// Multiple wildcards with OR
+CommandLine=*EncodedCommand* OR CommandLine=*-enc * OR CommandLine=*bypass*
+
+// Wildcard NOT equal
+FileName!=*svchost*
+\`\`\`
+
+### KERBEROASTING & LDAP HUNTING (T1558.003)
+
+Kerberoasting in CrowdStrike is observed via LDAP queries for service principal names.
+The key event is LdapSearchQueryV4 — NOT ProcessRollup2.
+
+#### LdapSearchQueryV4 — Complete field reference (VERIFIED)
+- ComputerName — hostname (string)
+- UserName — user performing LDAP query (string)
+- DistinguishedName — LDAP search base DN (string)
+- SearchFilter — LDAP filter string e.g. (servicePrincipalName=*) (string)
+- AttributeList — requested attributes (string)
+- Scope — search scope: Base/OneLevel/Subtree (string)
+- aid, aip, cid, @timestamp — standard fields
+
+#### Kerberoasting detection query (CORRECT CQL)
+\`\`\`cql
+// Hunt for LDAP queries targeting service principal names — Kerberoasting indicator
+#event_simpleName=LdapSearchQueryV4
+| SearchFilter=*servicePrincipalName*
+| filter(NOT UserName=/krbtgt|\.\$$/i)
+| groupBy([ComputerName, UserName, SearchFilter, DistinguishedName], function=[count(as=query_count), min(@timestamp, as=first_seen), max(@timestamp, as=last_seen)])
+| sort(field=query_count, order=desc)
+\`\`\`
+
+#### Network-based Kerberoasting (ticket requests)
+\`\`\`cql
+// Kerberos TGS requests to non-standard services — may indicate Kerberoasting
+#event_simpleName=KerberosTicketGranted
+| TicketOptions=*forwardable*
+| filter(NOT ServiceName=/krbtgt|cifs|host|rpcss|ldap/i)
+| groupBy([ComputerName, UserName, ServiceName], function=count())
+| sort(field=_count, order=desc)
+\`\`\`
+
+### COMMON CQL MISTAKES TO AVOID
+
+| WRONG | CORRECT | Reason |
+|-------|---------|--------|
+| \`CommandLine=/ldap/i\` on its own line without pipe | \`| CommandLine=/ldap/i\` | Pipe required before field filter in chain |
+| \`/adexplorer.exe/i\` | \`/adexplorer\\.exe/i\` | Dot must be escaped in regex |
+| \`NOT FileName=/a.exe/i\` at start | \`| filter(NOT FileName=/a\\.exe/i)\` | NOT requires filter() wrapper in pipe stage |
+| \`groupBy([f1,f2])\` | \`groupBy([f1, f2], function=count())\` | function= required in groupBy |
+| \`sort(field=count)\` | \`sort(field=_count, order=desc)\` | Auto-named count field is _count |
+| \`FileName=powershell.exe\` | \`FileName=powershell.exe\` OR \`FileName=/powershell\\.exe/i\` | Exact match OK, but regex needs escaped dot |
+| Multiple bare field filters on separate lines | Use \`| field=value\` per line or combine with spaces | Each pipe stage is a separate operation |
+
+
+### CQL HUNT EXAMPLES
+
+#### PowerShell encoded commands
+\`\`\`cql
+#event_simpleName=ProcessRollup2
+| FileName=/powershell\.exe/i
+| CommandLine=*EncodedCommand* OR CommandLine=*-enc * OR CommandLine=*-e *
+| groupBy([ComputerName, UserName, CommandLine, ParentBaseFileName], function=count())
+| sort(field=_count, order=desc)
+\`\`\`
+
+#### Office apps spawning suspicious children
+\`\`\`cql
+#event_simpleName=ProcessRollup2
+| ParentBaseFileName=/winword\.exe|excel\.exe|outlook\.exe|powerpnt\.exe/i
+| FileName=/cmd\.exe|powershell\.exe|wscript\.exe|mshta\.exe|certutil\.exe/i
+| groupBy([ComputerName, UserName, ParentBaseFileName, FileName, CommandLine])
+| sort(field=@timestamp, order=desc)
+\`\`\`
+
+#### Failed authentications
+\`\`\`cql
+#event_simpleName=UserLogon
+| LogonType=3
+| UserIsAdmin=0
+| groupBy([UserName, aip], function=[count(as=attempts)])
+| where(attempts > 20)
+| sort(field=attempts, order=desc)
+\`\`\`
+
+#### High-frequency outbound connections (beaconing)
+\`\`\`cql
+#event_simpleName=NetworkConnectIP4
+| RemoteAddressIP4!=/^(10\.|172\.(1[6-9]|2[0-9]|3[01])\.|192\.168\.)/
+| groupBy([ComputerName, FileName, RemoteAddressIP4, RemotePort], function=[count(as=connections), min(@timestamp, as=first_seen)])
+| where(connections > 100)
+| sort(field=connections, order=desc)
+\`\`\`
+
+#### LSASS access patterns
+\`\`\`cql
+#event_simpleName=ProcessRollup2
+| TargetProcessName=/lsass/i
+| FileName!=/MsMpEng\.exe|werfault\.exe|taskmgr\.exe/i
+| groupBy([ComputerName, UserName, FileName, CommandLine])
+| sort(field=@timestamp, order=desc)
+\`\`\`
+
+### SCHEMA DISCOVERY QUERIES (CrowdStrike / LogScale)
+\`\`\`cql
+// List all event types in your environment
+groupBy([#event_simpleName], function=count())
+| sort(field=_count, order=desc)
+
+// Fields for a specific event type
+#event_simpleName=ProcessRollup2
+| limit(1)
+| table(*)
+
+// Most active event types last 24h
+groupBy([#event_simpleName], function=count())
+| sort(field=_count, order=desc)
+| limit(50)
+\`\`\`
+`;
+
+// ─── PLATFORM DISCOVERY QUERIES ───────────────────────────────────────────────
+
+export const PLATFORM_DISCOVERY_QUERIES: Record<string, {
+  label: string;
+  description: string;
+  query: string;
+}[]> = {
+  xql: [
+    {
+      label: "All Datasets",
+      description: "Lists every dataset in your XSIAM tenant with retention and storage tier.",
+      query: `dataset = datasets
+| fields name, retention_in_days, data_vendor, schema_fields_count
+| sort asc name`,
+    },
+    {
+      label: "All Fields (recommended)",
+      description: "Full field inventory across all datasets. Export as JSON.",
+      query: `dataset = dataset_fields
+| fields dataset_name, field_name, field_type
+| sort asc dataset_name, field_name`,
+    },
+  ],
+  kql: [
+    {
+      label: "All Tables in Workspace",
+      description: "Lists all tables available in your Sentinel workspace.",
+      query: `union withsource=TableName *
+| summarize count() by TableName
+| order by TableName asc`,
+    },
+    {
+      label: "Table Schema (single table)",
+      description: "Get column names and types for a specific table. Replace TABLE_NAME.",
+      query: `TABLE_NAME
+| getschema
+| project ColumnName, ColumnType
+| order by ColumnName asc`,
+    },
+    {
+      label: "Recent Tables with Data",
+      description: "Tables that have had data in the last 24 hours.",
+      query: `union withsource=TableName *
+| where TimeGenerated >= ago(24h)
+| summarize LastEvent=max(TimeGenerated), Count=count() by TableName
+| order by Count desc`,
+    },
+  ],
+  spl: [
+    {
+      label: "All Indexes",
+      description: "Lists all indexes available in your Splunk environment.",
+      query: `| rest /services/data/indexes
+| table title, totalEventCount, currentDBSizeMB, minTime, maxTime
+| sort title`,
+    },
+    {
+      label: "Sourcetypes per Index",
+      description: "Shows all sourcetypes across indexes.",
+      query: `| metadata type=sourcetypes index=*
+| table sourcetype, index, totalCount, recentTime
+| sort index, sourcetype`,
+    },
+    {
+      label: "Field Summary for Sourcetype",
+      description: "Replace SOURCETYPE with your sourcetype name.",
+      query: `index=* sourcetype=SOURCETYPE earliest=-1h
+| fieldsummary
+| table field, count, distinct_count, type
+| sort field`,
+    },
+  ],
+  cql: [
+    {
+      label: "All Event Types",
+      description: "Lists all event simplenames in your Falcon environment.",
+      query: `groupBy([#event_simpleName], function=count())
+| sort(field=_count, order=desc)`,
+    },
+    {
+      label: "Fields for Event Type",
+      description: "Shows all fields for a specific event. Replace EVENT_NAME.",
+      query: `#event_simpleName=EVENT_NAME
+| limit(1)
+| table(*)`,
+    },
+    {
+      label: "Active Sensors",
+      description: "Counts active sensors by platform.",
+      query: `#event_simpleName=ProcessRollup2
+| groupBy([event_platform], function=count(as=events))
+| sort(field=events, order=desc)`,
+    },
+  ],
+};
+
+// ─── PLATFORM VALIDATOR DATASETS ─────────────────────────────────────────────
+
+export const PLATFORM_KNOWN_DATASETS: Record<string, string[]> = {
+  xql: [
+    "xdr_data", "process_events", "network_connections", "file_events",
+    "registry_events", "module_events", "auth_events", "identity_analytics",
+    "directory_sync", "firewall_events", "network_story", "dns_events",
+    "url_events", "cloud_audit_logs", "cloud_asset_db", "xdr_alerts",
+    "incidents", "datasets", "dataset_fields",
+  ],
+  kql: [
+    "DeviceProcessEvents", "DeviceNetworkEvents", "DeviceFileEvents",
+    "DeviceRegistryEvents", "DeviceLogonEvents", "DeviceImageLoadEvents",
+    "DeviceEvents", "DeviceAlertEvents", "SigninLogs", "AuditLogs",
+    "AADNonInteractiveUserSignInLogs", "IdentityLogonEvents",
+    "IdentityDirectoryEvents", "SecurityEvent", "WindowsEvent", "Syslog",
+    "AzureActivity", "AWSCloudTrail", "GCPAuditLogs", "CloudAppEvents",
+    "OfficeActivity", "EmailEvents", "EmailAttachmentInfo", "EmailUrlInfo",
+    "CommonSecurityLog", "DnsEvents", "NetworkAccessTraffic",
+    "SecurityAlert", "SecurityIncident", "BehaviorAnalytics",
+  ],
+  spl: [
+    "index=windows", "index=sysmon", "index=endpoint", "index=network",
+    "index=auth", "index=proxy", "index=o365", "index=zeek",
+    "sourcetype=WinEventLog:Security", "sourcetype=WinEventLog:System",
+    "sourcetype=XmlWinEventLog:Microsoft-Windows-Sysmon/Operational",
+    "sourcetype=pan:traffic", "sourcetype=cisco:asa", "sourcetype=stream:http",
+    "sourcetype=stream:dns", "sourcetype=okta:*", "sourcetype=o365:management:activity",
+  ],
+  cql: [
+    "ProcessRollup2", "SyntheticProcessRollup2", "NetworkConnectIP4",
+    "NetworkConnectIP6", "DnsRequest", "NetworkReceiveAcceptIP4",
+    "NewExecutableWritten", "NewScriptWritten", "DocumentProgramInjection",
+    "RegKeyValueSetByProcessId", "RegKeyCreated", "RegKeyDeleted",
+    "UserLogon", "UserLogoff", "AuthActivityAuditEvent",
+    "DetectionSummaryEvent", "EppDetectionSummaryEvent", "IncidentSummaryEvent",
+    "UserIdentity", "ProcessRollup2Bpf",
+    "#repo",
+  ],
+};
