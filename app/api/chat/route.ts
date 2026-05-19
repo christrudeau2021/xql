@@ -134,6 +134,20 @@ ${tenantBlock ? `## TENANT SCHEMA (treat these as valid):\n${tenantBlock}` : `NO
 - EventCode=4769 without quotes — CORRECT for integer fields
 - | where after | stats — CORRECT
 - earliest=-24h latest=now — CORRECT time syntax
+- // single-line comments — VALID SPL, do NOT flag at any severity
+- Multiple | search commands chained — VALID and intentional
+- | search NOT (a=x OR b=y) — VALID negation chain
+- field IN ("a","b","c") — VALID SPL IN operator
+- values(), dc(), round(), if(), strftime(), replace(), coalesce() — all VALID SPL functions
+- | eval with arithmetic and string functions — VALID
+- O365 fields UserId, ClientIP, Operation, Workload, RecordType, Parameters, Subject, Recipients, Name, MessageId, UserAgent, Country, ResultStatus — VERIFIED for index=o365 sourcetype=o365:management:activity
+
+### CRITICAL FALSE POSITIVE PREVENTION:
+- Comment style using // → do NOT flag, not a syntax issue, not even INFO
+- Multiple | search stages → performance suggestion at INFO only, never WARNING or ERROR
+- Suggesting consolidation of | search → INFO or omit entirely, never a WARNING
+- O365/AzureAD/Exchange field names → INFO if unverified, never ERROR
+- Performance optimization suggestions → PERFORMANCE category, INFO only
 
 ### XQL VERIFIED CORRECT PATTERNS (do NOT flag these):
 - ~= for regex matching — CORRECT (not /pattern/)
