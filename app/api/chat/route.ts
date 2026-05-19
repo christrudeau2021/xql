@@ -74,7 +74,14 @@ ${platform === "cql" ? `- Start with #event_simpleName= filter
 - Auto-named count is _count (not count or _count())
 - filter() wrapper for complex NOT logic: | filter(NOT FileName=/svc\.exe/i)
 - For Kerberoasting: use LdapSearchQueryV4 event with SearchFilter=*servicePrincipalName*
-- For LDAP hunts: use LdapSearchQueryV4, not ProcessRollup2` : ""}
+- For LDAP hunts: use LdapSearchQueryV4, not ProcessRollup2
+- CRITICAL: case{} statement does NOT exist in CQL — never use it
+- CRITICAL: UNION does not exist in CQL — use separate queries or join()
+- CRITICAL: UserName field does NOT exist on NetworkConnectIP4 — correlate cross-event by aid field
+- For multi-event user investigations: provide SEPARATE queries per event type, not one combined query
+- Field scoping: UserName=ProcessRollup2/UserLogon only, FileName=ProcessRollup2 only, RemoteAddressIP4=NetworkConnectIP4 only, aid=ALL events
+- For correlating user activity across event types: use join() on aid field, or recommend separate queries
+- Always add a time bound: filter(@timestamp > now() - 86400000*7) for 7 days` : ""}
 ${tenantBlock}`;
 }
 
