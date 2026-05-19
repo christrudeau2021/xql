@@ -303,6 +303,73 @@ dataset = identity_analytics
 | \`| select field1, field2\` | \`| fields field1, field2\` | Use fields not select |
 
 
+
+## XQL ADDITIONAL COVERAGE
+
+### C2 BEACONING — Time Math
+\`\`\`xql
+// C2 beaconing with time span calculation (86400000ms = 24 hours)
+dataset = xdr_data
+| filter event_type = "NETWORK"
+| filter event_timestamp >= subtract_time(now(), "24h")
+| filter action_remote_ip not contains "10." and action_remote_ip not contains "192.168." and action_remote_ip not contains "172."
+| comp count() as beacon_count,
+       min(event_timestamp) as first_seen,
+       max(event_timestamp) as last_seen
+  by host_name, actor_process_image_name, action_remote_ip, action_remote_port
+| filter beacon_count > 50
+// days_active = (last_seen - first_seen) / 86400000
+| alter days_active = divide(subtract(last_seen, first_seen), 86400000)
+| sort desc beacon_count
+\`\`\`
+
+### CERTUTIL DOWNLOAD AND DECODE
+\`\`\`xql
+// Certutil abuse — download or decode
+dataset = xdr_data
+| filter event_type = "PROCESS"
+| filter actor_process_image_name ~= "(?i)certutil"
+| filter actor_process_command_line ~= "(?i)(urlcache|decode|encode|-f)"
+| fields event_timestamp, host_name, user_name, actor_process_command_line
+| sort desc event_timestamp
+\`\`\`
+
+### RDP LATERAL MOVEMENT
+\`\`\`xql
+// RDP lateral movement — port 3389 connections from workstations
+dataset = xdr_data
+| filter event_type = "NETWORK"
+| filter action_remote_port = 3389
+| filter action_network_protocol = "TCP"
+| comp count() as rdp_count, values(action_remote_ip) as targets
+  by host_name, actor_process_image_name
+| filter rdp_count > 3
+| sort desc rdp_count
+\`\`\`
+
+### BITS JOB PERSISTENCE
+\`\`\`xql
+// BITS job abuse — bitsadmin.exe with transfer or addfile
+dataset = xdr_data
+| filter event_type = "PROCESS"
+| filter actor_process_image_name ~= "(?i)bitsadmin"
+| filter actor_process_command_line ~= "(?i)(transfer|addfile|setnotifycmdline|resume)"
+| fields event_timestamp, host_name, user_name, actor_process_command_line
+| sort desc event_timestamp
+\`\`\`
+
+### NEW SERVICE INSTALLATION (XQL)
+// Note: Windows EventCode=7045 is available via xdr_data as a security event
+\`\`\`xql
+dataset = xdr_data
+| filter event_type = "PROCESS"
+| filter actor_process_image_name ~= "(?i)(sc\.exe|services\.exe)"
+| filter actor_process_command_line ~= "(?i)(create|config|binpath)"
+| filter actor_process_command_line not contains "MpsSvc"
+| fields event_timestamp, host_name, user_name, actor_process_command_line
+| sort desc event_timestamp
+\`\`\`
+
 ## THREAT HUNTING EXAMPLES
 
 ### 1. Detect PowerShell with encoded commands
