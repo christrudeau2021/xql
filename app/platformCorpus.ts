@@ -125,6 +125,123 @@ Time units: s, m, h, d, w (e.g. ago(30m), ago(7d))
 - RegistryKey, RegistryValueName, RegistryValueData
 
 
+
+### KQL EXTENDED COVERAGE
+
+#### Registry Persistence
+\`\`\`kql
+// Registry Run key persistence
+DeviceRegistryEvents
+| where TimeGenerated >= ago(7d)
+| where RegistryKey contains "CurrentVersion\\Run"
+    or RegistryKey contains "CurrentVersion\\RunOnce"
+| where InitiatingProcessFileName !in~ ("msiexec.exe","setup.exe","install.exe","trustedinstaller.exe")
+| project TimeGenerated, DeviceName, InitiatingProcessAccountName,
+          InitiatingProcessFileName, RegistryKey, RegistryValueName, RegistryValueData
+| order by TimeGenerated desc
+\`\`\`
+
+#### Shadow Copy Deletion
+\`\`\`kql
+DeviceProcessEvents
+| where TimeGenerated >= ago(24h)
+| where FileName =~ "vssadmin.exe" and ProcessCommandLine has_any ("delete","resize")
+    or FileName =~ "wmic.exe" and ProcessCommandLine has "shadowcopy"
+    or FileName =~ "wbadmin.exe" and ProcessCommandLine has "delete"
+| project TimeGenerated, DeviceName, AccountName, FileName, ProcessCommandLine
+\`\`\`
+
+#### Conditional Access & MFA Events (SigninLogs)
+\`\`\`kql
+// SigninLogs key fields for identity hunting
+// ConditionalAccessStatus: success, failure, notApplied, unknownFutureValue
+// AuthenticationRequirement: singleFactorAuthentication / multiFactorAuthentication
+SigninLogs
+| where TimeGenerated >= ago(24h)
+| where ConditionalAccessStatus != "success"
+| extend MFARequired = AuthenticationRequirement
+| extend Country = tostring(LocationDetails.countryOrRegion)
+| extend City = tostring(LocationDetails.city)
+| project TimeGenerated, UserPrincipalName, IPAddress, Country, City,
+          ConditionalAccessStatus, MFARequired, AppDisplayName, ResultType
+| order by TimeGenerated desc
+\`\`\`
+
+#### Impossible Travel
+\`\`\`kql
+// Impossible travel — same user from multiple countries in short window
+SigninLogs
+| where TimeGenerated >= ago(24h)
+| where ResultType == 0
+| extend Country = tostring(LocationDetails.countryOrRegion)
+| summarize Countries=make_set(Country), IPs=make_set(IPAddress), Count=count()
+    by UserPrincipalName, bin(TimeGenerated, 1h)
+| where array_length(Countries) > 1
+| order by TimeGenerated desc
+\`\`\`
+
+#### Scheduled Task via schtasks
+\`\`\`kql
+DeviceProcessEvents
+| where TimeGenerated >= ago(7d)
+| where FileName =~ "schtasks.exe" and ProcessCommandLine has "/create"
+| where InitiatingProcessFileName !in~ ("taskeng.exe","taskhostw.exe","svchost.exe")
+| project TimeGenerated, DeviceName, AccountName, ProcessCommandLine, InitiatingProcessFileName
+\`\`\`
+
+#### New Admin Account (SecurityEvent)
+\`\`\`kql
+// EventID 4720 = account created, 4732 = added to security group (Administrators)
+SecurityEvent
+| where TimeGenerated >= ago(7d)
+| where EventID in (4720, 4728, 4732, 4756)
+| extend AccountCreated = TargetUserName
+| project TimeGenerated, Computer, EventID, AccountCreated, SubjectUserName, SubjectLogonId
+| order by TimeGenerated desc
+\`\`\`
+
+#### WMI Event Subscriptions
+\`\`\`kql
+// WMI persistence via DeviceEvents
+DeviceEvents
+| where TimeGenerated >= ago(7d)
+| where ActionType in ("WmiBindingCreated","WmiConsumerCreated","WmiFilterCreated")
+    or (ActionType == "ProcessCreated" and InitiatingProcessFileName =~ "wmiprvse.exe")
+| project TimeGenerated, DeviceName, AccountName, ActionType, AdditionalFields
+\`\`\`
+
+#### PsExec Detection
+\`\`\`kql
+// PsExec via service creation or named pipe
+DeviceProcessEvents
+| where TimeGenerated >= ago(24h)
+| where FileName =~ "psexesvc.exe"
+    or (FileName =~ "services.exe" and ProcessCommandLine has "PSEXESVC")
+    or InitiatingProcessFileName =~ "psexec.exe"
+| project TimeGenerated, DeviceName, AccountName, FileName, ProcessCommandLine
+
+// Alternative — via DeviceEvents (named pipe)
+DeviceEvents
+| where TimeGenerated >= ago(24h)
+| where ActionType == "NamedPipeEvent"
+| where AdditionalFields has "psexec" or AdditionalFields has "PSEXESVC"
+\`\`\`
+
+#### SigninLogs — Key Fields Reference
+- UserPrincipalName — UPN e.g. user@domain.com
+- UserDisplayName — display name
+- IPAddress — source IP
+- LocationDetails — nested: city, state, countryOrRegion, geoCoordinates
+- DeviceDetail — nested: deviceId, operatingSystem, browser
+- ConditionalAccessStatus — success, failure, notApplied
+- AuthenticationRequirement — singleFactorAuthentication, multiFactorAuthentication
+- ResultType — 0=success, non-zero=failure code
+- ResultDescription — human readable failure reason
+- AppDisplayName — application being accessed
+- ClientAppUsed — Browser, Mobile Apps and Desktop Clients, etc
+- RiskLevelDuringSignIn — none, low, medium, high
+- RiskState — none, confirmedSafe, remediated, dismissed, atRisk, confirmedCompromised
+
 ### COMMON KQL MISTAKES TO AVOID
 
 | WRONG | CORRECT | Reason |
@@ -329,6 +446,115 @@ earliest="01/01/2024:00:00:00" latest="01/31/2024:23:59:59"
 - index=o365 sourcetype=o365:management:activity — M365 audit
 
 
+
+### SPL EXTENDED COVERAGE
+
+#### Scheduled Task Creation (EventCode=4698)
+\`\`\`spl
+index=windows sourcetype=WinEventLog:Security EventCode=4698 earliest=-7d
+| rename TaskName as scheduled_task_name
+| table _time, ComputerName, SubjectUserName, TaskName, TaskContent
+| sort -_time
+\`\`\`
+
+#### Shadow Copy Deletion (SPL)
+\`\`\`spl
+index=sysmon sourcetype=XmlWinEventLog:Microsoft-Windows-Sysmon/Operational EventCode=1 earliest=-24h
+| search (Image="*vssadmin.exe" CommandLine="*delete*") OR (Image="*wmic.exe" CommandLine="*shadowcopy*delete*")
+| table _time, ComputerName, User, Image, CommandLine
+| sort -_time
+\`\`\`
+
+#### Registry Run Key Persistence (Sysmon EventCode 12/13)
+- EventCode=12 — RegistryEvent (Object create/delete)
+- EventCode=13 — RegistryEvent (Value Set)
+- EventCode=14 — RegistryEvent (Key/Value Rename)
+- TargetObject — full registry path e.g. HKLM\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Run\\malware
+- Details — value data written
+- Image — process making the change
+
+\`\`\`spl
+index=sysmon EventCode=13 earliest=-7d
+| search TargetObject="*CurrentVersion\\Run*" OR TargetObject="*CurrentVersion\\RunOnce*"
+| search NOT Image IN ("*msiexec.exe","*trustedinstaller.exe","*setup.exe")
+| table _time, ComputerName, User, Image, TargetObject, Details
+| sort -_time
+\`\`\`
+
+#### WMI Event Subscriptions (Sysmon EventCode 19/20/21)
+- EventCode=19 — WmiEvent (WmiEventFilter activity detected)
+- EventCode=20 — WmiEvent (WmiEventConsumer activity detected)
+- EventCode=21 — WmiEvent (WmiEventConsumerToFilter activity detected)
+
+\`\`\`spl
+index=sysmon (EventCode=19 OR EventCode=20 OR EventCode=21) earliest=-7d
+| table _time, ComputerName, User, EventCode, Name, Type, Destination, Consumer, Filter
+| sort -_time
+\`\`\`
+
+#### New Admin Account (Security Events)
+- EventCode=4720 — user account created
+- EventCode=4722 — user account enabled
+- EventCode=4728 — member added to global security group
+- EventCode=4732 — member added to local security group (Administrators)
+- EventCode=4756 — member added to universal security group
+
+\`\`\`spl
+index=windows sourcetype=WinEventLog:Security (EventCode=4720 OR EventCode=4732) earliest=-7d
+| eval event_type=case(EventCode=4720,"Account Created",EventCode=4732,"Added to Admins",true(),"Other")
+| table _time, ComputerName, SubjectUserName, TargetUserName, event_type
+| sort -_time
+\`\`\`
+
+#### Remote Execution (EventCode=4688 with ParentProcessName)
+- EventCode=4688 — process creation (requires audit process creation + command line logging)
+- ParentProcessName — parent process path (available when command line auditing enabled)
+- NewProcessName — spawned process full path
+- CommandLine — command line if auditing enabled
+
+\`\`\`spl
+index=windows sourcetype=WinEventLog:Security EventCode=4688 earliest=-24h
+| search (ParentProcessName="*winword.exe" OR ParentProcessName="*excel.exe" OR ParentProcessName="*outlook.exe")
+| search (NewProcessName="*cmd.exe" OR NewProcessName="*powershell.exe" OR NewProcessName="*wscript.exe")
+| table _time, ComputerName, SubjectUserName, ParentProcessName, NewProcessName, CommandLine
+| sort -_time
+\`\`\`
+
+#### Email Forwarding Rules (O365)
+\`\`\`spl
+index=o365 sourcetype=o365:management:activity earliest=-30d
+| search (Operation="New-InboxRule" OR Operation="Set-InboxRule" OR Operation="Set-Mailbox")
+| search (Parameters="*ForwardTo*" OR Parameters="*RedirectTo*" OR Parameters="*ForwardingSmtpAddress*")
+| eval forwarding_dest=mvindex(split(Parameters,"ForwardTo"),1)
+| table _time, UserId, ClientIP, Operation, Parameters, Name
+| sort -_time
+\`\`\`
+
+#### Threat Intel IOC Lookup
+\`\`\`spl
+// Using | lookup for threat intel enrichment
+index=network earliest=-24h
+| stats count by dest_ip
+| lookup threat_intel_ips ip as dest_ip OUTPUT threat_category, confidence
+| where threat_category!=""
+| sort -confidence
+
+// Using | inputlookup to load IOC list
+| inputlookup malicious_ips.csv
+| rename ip as dest_ip
+| join dest_ip [search index=network earliest=-24h | stats count by dest_ip]
+\`\`\`
+
+#### TaskName field reference
+- TaskName — scheduled task name from EventCode=4698/4699/4700/4701/4702
+- TaskContent — XML definition of the task
+- SubjectUserName — user who created the task
+\`\`\`spl
+index=windows sourcetype=WinEventLog:Security (EventCode=4698 OR EventCode=4702) earliest=-7d
+| table _time, ComputerName, SubjectUserName, TaskName
+| sort -_time
+\`\`\`
+
 ### COMMON SPL MISTAKES TO AVOID
 
 | WRONG | CORRECT | Reason |
@@ -358,6 +584,114 @@ index=sysmon EventCode=1 earliest=-7d
 | table _time, ComputerName, User, CommandLine
 | sort -_time
 \`\`\`
+
+
+### O365 / AZURE AD FIELD REFERENCE (for BEC, identity, cloud investigations)
+
+#### index=o365 sourcetype=o365:management:activity — Key fields (VERIFIED)
+- UserId — UPN of user performing action e.g. user@domain.com (string)
+- ClientIP — source IP of the action (string)
+- Operation — action performed: UserLoggedIn, New-InboxRule, Send, Set-Mailbox etc (string)
+- Workload — service: Exchange, AzureActiveDirectory, SharePoint, OneDrive (string)
+- RecordType — log category: ExchangeAdmin, ExchangeItem, AzureActiveDirectory etc (string)
+- ResultStatus — Success or Failed (string)
+- UserAgent — browser/client user agent (string)
+- Parameters — JSON array of cmdlet parameters for admin operations (string)
+- Name — inbox rule name (string)
+- Subject — email subject line (string)
+- Recipients — email recipients array (string) — NOTE: may appear as Item.Recipients or nested; use RawEventData or | spath to extract
+- RawEventData — full JSON payload of the audit event (string) — use | spath for field extraction, avoid wildcard search on this field for performance
+- MessageId — unique message identifier (string)
+- OrganizationId — tenant ID (string)
+- CreationTime — event timestamp (string — use _time for SPL time filtering)
+- Country — country of ClientIP (string) — NOTE: some O365 logs use CountryOrRegion not Country
+- CountryOrRegion — country in AzureAD/SigninLogs format (string) — prefer this over Country
+- City — city of ClientIP (string)
+
+#### Common O365 Operations for BEC Investigation
+- UserLoggedIn / UserLoginFailed — authentication events
+- New-InboxRule / Set-InboxRule — forwarding rule creation
+- New-TransportRule / Set-TransportRule — tenant-wide transport rules
+- Set-Mailbox — mailbox setting changes (ForwardingSmtpAddress)
+- Send — email send events
+- FileDownloaded / FileAccessed — SharePoint/OneDrive data access
+- Add member to role — privilege escalation
+- Reset user password — account takeover indicator
+- MipLabel — sensitivity label changes
+
+### SPL EVAL FUNCTIONS REFERENCE
+
+\`\`\`spl
+| eval duration_hours=round((last_seen-first_seen)/3600,1)
+| eval avg_per_hour=round(count/if(duration_hours>0,duration_hours,1),1)
+| eval is_after_hours=if(strftime(_time,"%H") < "08" OR strftime(_time,"%H") >= "18","YES","NO")
+| eval domain=replace(UserId,".*@","")
+| eval short_ip=replace(src_ip,"(\\d+\\.\\d+\\.\\d+)\\..*","\\1.x")
+\`\`\`
+
+#### SPL Math/String Functions
+- round(num, decimals) — round to decimal places
+- if(condition, true_val, false_val) — conditional
+- len(field) — string length
+- substr(field, start, len) — substring
+- replace(field, regex, replacement) — regex replace
+- lower(field) / upper(field) — case conversion
+- strftime(_time, format) — format timestamp
+- relative_time(now(), "-7d@d") — relative time calculation
+- coalesce(field1, field2) — first non-null value
+- mvcount(field) — count of multivalue field values
+- mvindex(field, n) — nth value of multivalue field
+
+### SPL COMMENT SYNTAX (VALID FORMS)
+
+\`\`\`spl
+// Single line comment — VALID and commonly used
+| stats count by host  // inline comment — VALID
+
+/* Multi-line comment
+   also valid */
+
+| stats count by host  \`backtick comments\` -- NOT standard
+
+\`\`\`
+NOTE FOR VALIDATOR: // comments in SPL are VALID syntax. Do NOT flag // as a syntax error or warning.
+Multiple | search commands in sequence are VALID SPL — do not flag as consolidation error.
+Chained search commands are intentional for readability in complex investigations.
+
+
+### O365 FIELD EXTRACTION BEST PRACTICES
+
+\`\`\`spl
+// CORRECT — use spath for nested JSON fields instead of raw text search
+index=o365 sourcetype=o365:management:activity Operation="New-InboxRule" earliest=-7d
+| spath input=RawEventData
+| search Parameters{}.Name="ForwardTo" OR Parameters{}.Name="RedirectTo"
+| table _time, UserId, ClientIP, Operation, Parameters{}.Name, Parameters{}.Value
+
+// CORRECT — CountryOrRegion field (NOT Country) for O365 auth events
+index=o365 sourcetype=o365:management:activity Operation="UserLoginFailed" earliest=-7d
+| spath input=RawEventData
+| eval country=coalesce('Actor{}.ID', CountryOrRegion)
+| search NOT CountryOrRegion IN ("US","United States","Canada","UK")
+| stats count as failures, values(CountryOrRegion) as countries, values(ClientIP) as ips by UserId
+| where failures > 3
+
+// CORRECT — Recipients extraction for email sends
+index=o365 sourcetype=o365:management:activity Operation="Send" earliest=-7d
+| spath input=RawEventData
+| eval recipient_list=mvjoin('RecipientInfo{}.Recipients{}', ",")
+| stats count as sent, dc(recipient_list) as unique_recipients by UserId
+\`\`\`
+
+### COMMON O365 FIELD MISTAKES
+
+| WRONG | CORRECT | Reason |
+|-------|---------|--------|
+| \`Country\` | \`CountryOrRegion\` | Standard field name in O365/AzureAD logs |
+| \`search RawEventData="*ForwardTo*"\` | \`spath input=RawEventData | search Parameters{}.Name="ForwardTo"\` | spath is faster and more reliable than wildcard on JSON |
+| \`Recipients\` | \`RecipientInfo{}.Recipients{}\` or \`spath\` extraction | Recipients is nested in O365 JSON structure |
+| \`latest=-0d@d\` in some subsearches | Consistent \`earliest=-7d latest=now\` | Inconsistent time ranges cause confusing results |
+| \`multisearch\` with mixed eval padding | Separate searches or union | multisearch with null-fill evals is hard to maintain |
 
 ### SPL HUNT EXAMPLES
 
@@ -650,6 +984,56 @@ NOT FileName=/MsMpEng\.exe|taskmgr\.exe/i
 - event_platform — Win / Mac / Lin (string)
 - #event_simpleName — event type name (string)
 
+
+
+### CQL EXTENDED COVERAGE
+
+#### Registry Events — Complete Reference
+\`\`\`cql
+// Registry persistence — Run key modification
+#event_simpleName=RegKeyValueSetByProcessId
+| RegObjectName=*CurrentVersion\\Run*
+| filter(NOT FileName=/msiexec\.exe|trustedinstaller\.exe|setup\.exe/i)
+| groupBy([ComputerName, UserName, FileName, RegObjectName, RegStringValue], function=count())
+| sort(field=@timestamp, order=desc)
+\`\`\`
+
+#### RegKeyValueSetByProcessId — RegistryPath variants
+- RegObjectName — full registry key path
+  e.g. \\REGISTRY\\MACHINE\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Run\\malware
+- RegStringValue — string value data written
+- RegNumericValue — numeric value data
+- RegOperationType — type of operation
+
+#### Certutil and LOLBin Download Patterns
+\`\`\`cql
+// Certutil urlcache download
+#event_simpleName=ProcessRollup2
+| FileName=/certutil\.exe/i
+| CommandLine=*urlcache* OR CommandLine=*-decode* OR CommandLine=*-encode*
+| groupBy([ComputerName, UserName, CommandLine], function=count())
+| sort(field=@timestamp, order=desc)
+\`\`\`
+
+#### Wildcard Examples (CQL)
+\`\`\`cql
+// Wildcard contains — use * on both sides
+CommandLine=*encoded*
+CommandLine=*powershell*
+FileName=*powershell*
+
+// Wildcard starts with
+CommandLine=powershell*
+
+// Wildcard ends with
+FileName=*.exe
+
+// Multiple wildcards with OR
+CommandLine=*EncodedCommand* OR CommandLine=*-enc * OR CommandLine=*bypass*
+
+// Wildcard NOT equal
+FileName!=*svchost*
+\`\`\`
 
 ### KERBEROASTING & LDAP HUNTING (T1558.003)
 
